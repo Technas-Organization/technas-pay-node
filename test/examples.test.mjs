@@ -22,7 +22,10 @@ test("exemple Express", async () => {
   }
 });
 
-test("exemple Fastify", async () => {
+// Fastify 5 exige Node 20 : l'exemple n'est joué qu'à partir de là (le cœur, lui, tourne sous Node 18).
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+
+test("exemple Fastify", { skip: nodeMajor < 20 && "Fastify 5 exige Node 20" }, async () => {
   const { build, pay, paid } = await import("../examples/fastify.mjs");
   const app = build();
   const hook = await pay.createTestWebhookPayload("payment.completed", { reference: "7-1", amount: 5000, currency: "XOF" });

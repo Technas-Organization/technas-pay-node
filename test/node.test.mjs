@@ -182,6 +182,7 @@ test("sans crypto global (Node 18) : node:crypto prend le relais", async () => {
     const result = await pay.handleWebhook(hook.body, hook.headers["X-Technas-Payment-Signature"] ?? Object.values(hook.headers)[1], {});
     assert.equal(result.status, 200);
   } finally {
-    Object.defineProperty(globalThis, "crypto", original);
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+    else delete globalThis.crypto; // Node 18 : pas de crypto global au départ
   }
 });
