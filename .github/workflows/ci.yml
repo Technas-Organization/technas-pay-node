@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # ARC self-hosted (jamais ubuntu-latest). Dépôt privé : pas de PR de fork sur le runner.
+    runs-on: technas-backend-light
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["18", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+      - name: Le paquet livre AGENTS.md et llms.txt
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e 'const f=require("./pack.json")[0].files.map(x=>x.path); for (const n of ["AGENTS.md","llms.txt","dist/index.js","dist/browser.js"]) if(!f.includes(n)) { console.error(n+" absent"); process.exit(1) }'
