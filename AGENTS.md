@@ -33,7 +33,7 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 
 ## Étapes
 
-1. `npm install github:Technas-Organization/technas-pay-node#v0.9.1`
+1. `npm install github:Technas-Organization/technas-pay-node#v0.10.0`
 2. Créez `lib/pay.js` (ou `.ts`) :
    ```js
    import { createTechnasPay } from "@technas/pay";
@@ -48,6 +48,10 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
    - **Hono, Bun, Deno, Remix** (norme fetch) : `pay.webhookHandler(handlers)` prend une `Request` et rend une `Response`.
    Dans `onCompleted`, marquez la commande payée à partir de `event.payment.reference`. Exemples testés : [`examples/`](examples).
 5. Ajoutez un test qui poste `await pay.createTestWebhookPayload("payment.completed", {...})` sur cette route (voir `test/examples.test.mjs`), puis lancez-le.
+
+## App mobile (Flutter)
+
+Ne réécrivez pas de routes : `pay.appRoutes({ authorize, resolveOrder, returnUrl, webhooks })`, montées sous `/api/technas-pay` (`.node` pour Express/Nest AVANT `express.json()`, `.nextHandlers(...)` pour Next.js). `resolveOrder(orderId, user)` relit la commande EN BASE et rend `null` si elle n'est pas à cet utilisateur. N'y mettez jamais un montant reçu de l'app. Côté app : `TechnasPayClient(baseUrl: '.../api/technas-pay')`.
 
 ## Obligatoire
 

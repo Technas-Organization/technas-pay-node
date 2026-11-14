@@ -1,3 +1,7 @@
+import { createAppRoutes, type AppRoutesOptions } from "./app-routes.js";
+
+export * from "./app-routes.js";
+
 const DEFAULT_BASE_URL = "https://pay-api.technas.fr";
 const SIGNATURE_HEADER = "x-technas-payment-signature";
 const DEFAULT_TOLERANCE_S = 300;
@@ -710,11 +714,13 @@ export interface NodeLikeResponse {
   end(body?: string): unknown;
 }
 
-function toText(raw: string | Uint8Array): string {
+/** @internal */
+export function toText(raw: string | Uint8Array): string {
   return typeof raw === "string" ? raw : new TextDecoder().decode(raw);
 }
 
-async function readRawBody(req: NodeLikeRequest): Promise<string | Uint8Array> {
+/** @internal */
+export async function readRawBody(req: NodeLikeRequest): Promise<string | Uint8Array> {
   for (const candidate of [req.rawBody, req.body]) {
     if (typeof candidate === "string" || candidate instanceof Uint8Array) return candidate;
   }
@@ -1166,6 +1172,15 @@ export function createTechnasPay(options: TechnasPayOptions) {
           res.end(JSON.stringify({ error: "handler_failed" }));
         }
       };
+    },
+
+    /**
+     * Routes toutes faites pour votre app (technas_pay_flutter) : démarrer le paiement d'une
+     * commande, relire son statut, les moyens ouverts, et le webhook. Vous ne fournissez que
+     * `authorize` (votre authentification) et `resolveOrder` (la commande relue en base).
+     */
+    appRoutes<User>(routeOptions: AppRoutesOptions<User>) {
+      return createAppRoutes<User>(api, routeOptions);
     },
   };
   return api;
