@@ -1,0 +1,57 @@
+{
+  "name": "@technas/pay",
+  "version": "0.9.0",
+  "description": "Encaisser des paiements mobile money via Technas depuis n'importe quel serveur JavaScript : Express, Fastify, NestJS, Hono, Node, Bun, Deno.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/browser.js",
+      "react-native": "./dist/browser.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "AGENTS.md",
+    "llms.txt",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./dist/browser.js"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "express": "4.21.2",
+    "fastify": "5.2.1",
+    "typescript": "5.6.3"
+  },
+  "keywords": [
+    "technas",
+    "payments",
+    "mobile money",
+    "fcfa",
+    "xof",
+    "xaf",
+    "webhook",
+    "express",
+    "fastify"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Technas-Organization/technas-pay-node.git"
+  },
+  "homepage": "https://github.com/Technas-Organization/technas-pay-node#readme"
+}
