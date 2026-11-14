@@ -12,6 +12,7 @@ import {
   retryReference,
   TechnasPayError,
   toAppJson,
+  type CardAccount,
   type NodeLikeRequest,
   type NodeLikeResponse,
   type Payment,
@@ -60,11 +61,23 @@ export interface AppRoutesOptions<User> {
   webhooks?: WebhookHandlers;
   /** Nombre maximal d'essais expirés sautés pour une commande (20 par défaut). */
   maxAttempts?: number;
+  /**
+   * Proposer la carte. Elle n'est ouverte que si votre compte carte est prêt
+   * (`getCardAccount().canAcceptPayments`) et que la commande a une `currency`.
+   */
+  card?: boolean;
+  /**
+   * Le MARCHAND (votre administrateur), pour `GET /card/account` et `POST /card/onboarding`.
+   * Rendez-le, ou null (403). Sans ce crochet, ces routes n'existent pas.
+   */
+  authorizeAdmin?: (request: AppRequest) => unknown | Promise<unknown>;
 }
 
 /** La partie du client utilisée ici (le client complet convient). */
 interface PayLike {
   askForPayment(input: any): Promise<Payment>;
+  getCardAccount(): Promise<CardAccount>;
+  startCardOnboarding(input: any): Promise<{ url: string; kind: string; expiresAt: string | null; account: CardAccount }>;
   getPayment(id: string): Promise<Payment>;
   handleWebhook(raw: string | Uint8Array, signature: string | null | undefined, handlers: WebhookHandlers): Promise<{ status: number; body: unknown; event?: TechnasPayEvent }>;
 }
@@ -88,23 +101,36 @@ function queryOf(url: URL): Record<string, string> {
   return q;
 }
 
-/** `42-3` → `42` (la commande d'un essai). */
+/** `42-3` ou `42-card-3` → `42` (la commande d'un essai). */
 function orderIdOf(reference: string): string {
-  const i = reference.lastIndexOf("-");
-  return i > 0 ? reference.slice(0, i) : reference;
+  const m = /^(.+?)-(?:card-)?\d+$/.exec(reference);
+  return m ? m[1]! : reference;
+}
+
+/** Ce que l'app voit du compte carte : ni pays, ni identifiants. */
+function appAccount(a: CardAccount) {
+  return {
+    status: a.status,
+    can_accept_payments: a.canAcceptPayments,
+    payouts_enabled: a.payoutsEnabled,
+    requirements: a.requirements,
+    disabled_reason: a.disabledReason,
+  };
 }
 
 export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<User>) {
   const maxAttempts = options.maxAttempts ?? 20;
 
-  async function startPayment(orderId: string, order: AppOrder): Promise<Payment> {
+  async function startPayment(orderId: string, order: AppOrder, method: "mobile_money" | "card"): Promise<Payment> {
     // Une référence = un essai : `orderId-1`, puis `-2`… Un essai expiré lève payment_expired,
     // on passe au suivant. Un essai en cours (ou payé) est rendu tel quel : jamais deux paiements.
     for (let attempt = 1; ; attempt++) {
       try {
         return await pay.askForPayment({
           amount: order.amount,
-          reference: retryReference(orderId, attempt),
+          // La carte a ses propres essais : un essai mobile money en cours n'est jamais heurté.
+          reference: method === "card" ? `${orderId}-card-${attempt}` : retryReference(orderId, attempt),
+          ...(method === "card" ? { method } : {}),
           customer: order.customer,
           returnUrl: order.returnUrl ?? options.returnUrl,
           ...(order.currency ? { currency: order.currency } : {}),
@@ -118,6 +144,16 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
     }
   }
 
+  /** La carte pour cette commande : ouverte seulement si le marchand l'a voulue et que son compte est prêt. */
+  async function cardMethod(order: AppOrder) {
+    if (!options.card) return { method: "card", available: false, reason: "not_enabled" };
+    if (!order.currency) return { method: "card", available: false, reason: "currency_required" };
+    const account = await pay.getCardAccount();
+    return account.canAcceptPayments
+      ? { method: "card", available: true, reason: null }
+      : { method: "card", available: false, reason: "card_account_not_ready" };
+  }
+
   async function handle(req: AppRequest): Promise<AppResponse> {
     const path = "/" + req.path.replace(/^\/+|\/+$/g, "");
     const method = req.method.toUpperCase();
@@ -126,6 +162,36 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
       if (!options.webhooks) return err(404, "not_found", "Webhook non branché");
       const r = await pay.handleWebhook(req.rawBody, req.headers["x-technas-payment-signature"], options.webhooks);
       return { status: r.status, body: r.body };
+    }
+
+    // Routes du marchand : compte carte. Elles n'existent que si `authorizeAdmin` est branché.
+    if ((method === "GET" && path === "/card/account") || (method === "POST" && path === "/card/onboarding")) {
+      if (!options.authorizeAdmin) return err(404, "not_found", "Route inconnue");
+      const admin = await options.authorizeAdmin(req);
+      if (admin === null || admin === undefined || admin === false) return err(403, "forbidden", "Réservé au marchand");
+      try {
+        if (path === "/card/account") return { status: 200, body: { account: appAccount(await pay.getCardAccount()) } };
+        let body: any;
+        try {
+          body = req.rawBody ? JSON.parse(req.rawBody) : {};
+        } catch {
+          return err(400, "invalid_request", "Corps JSON illisible");
+        }
+        if (typeof body?.returnUrl !== "string" || typeof body?.refreshUrl !== "string") {
+          return err(400, "invalid_request", "returnUrl et refreshUrl sont obligatoires");
+        }
+        const link = await pay.startCardOnboarding({
+          country: body.country,
+          email: body.email,
+          businessType: body.businessType,
+          returnUrl: body.returnUrl,
+          refreshUrl: body.refreshUrl,
+        });
+        return { status: 200, body: { url: link.url, kind: link.kind, expires_at: link.expiresAt, account: appAccount(link.account) } };
+      } catch (e) {
+        if (e instanceof TechnasPayError) return fromPayError(e);
+        throw e;
+      }
     }
 
     const known = (method === "GET" && (path === "/methods" || /^\/payments\/[^/]+$/.test(path))) || (method === "POST" && path === "/payments");
@@ -146,10 +212,7 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
             amount: order.amount,
             currency: order.currency ?? null,
             // La carte s'ouvre avec le compte carte du marchand (Stripe Connect) : à venir.
-            methods: [
-              { method: "mobile_money", available: true, reason: null },
-              { method: "card", available: false, reason: "not_enabled" },
-            ],
+            methods: [{ method: "mobile_money", available: true, reason: null }, await cardMethod(order)],
           },
         };
       }
@@ -163,9 +226,13 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
         }
         const orderId = typeof body?.orderId === "string" || typeof body?.orderId === "number" ? String(body.orderId) : "";
         if (!orderId) return err(400, "invalid_request", "orderId manquant");
+        const method = body?.method ?? "mobile_money";
+        if (method !== "mobile_money" && method !== "card") return err(400, "invalid_request", 'method vaut "mobile_money" ou "card"');
+        if (method === "card" && !options.card) return err(400, "method_not_available", "Le paiement par carte n'est pas ouvert");
         const order = await options.resolveOrder(orderId, user);
         if (!order) return err(404, "order_not_found", "Commande introuvable");
-        return { status: 200, body: { payment: toAppJson(await startPayment(orderId, order)) } };
+        if (method === "card" && !order.currency) return err(400, "currency_required", "La commande n'a pas de devise : carte impossible");
+        return { status: 200, body: { payment: toAppJson(await startPayment(orderId, order, method)) } };
       }
 
       // GET /payments/{id} : seulement si la commande de ce paiement est à cet utilisateur.

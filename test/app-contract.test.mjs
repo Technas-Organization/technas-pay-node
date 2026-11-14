@@ -34,6 +34,8 @@ function routesFor(c, pay, webhooks) {
     resolveOrder: (orderId, user) => (user === c.user ? c.orders[orderId] ?? null : null),
     returnUrl: "https://app.test/retour",
     webhooks,
+    ...(c.options ?? {}),
+    ...("admin" in c ? { authorizeAdmin: () => c.admin } : {}),
   });
 }
 

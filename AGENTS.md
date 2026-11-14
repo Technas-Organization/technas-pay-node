@@ -28,12 +28,16 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 | Choisir les pays où vendre | `pay.setCountryRules({ allowed?, excluded? })`, ou `allowedCountries` / `excludedCountries` par paiement |
 | Afficher l'historique | `pay.listTransactions({ limit, status, cursor })` |
 | Reversements, numéro de reversement | `pay.getSettlements()`, `pay.getPayoutDestination()`, `pay.setPayoutDestination(...)` |
+| Faire payer par carte bancaire | d'abord un compte carte actif (section « Paiement par carte »), puis `pay.askForPayment({ method: "card", amount, currency, ... })` |
+| Ouvrir ou finir le compte carte | `pay.startCardOnboarding({ country, returnUrl, refreshUrl })`, puis rediriger le RESPONSABLE vers `url` |
+| Savoir si la carte est ouverte | `(await pay.getCardAccount()).canAcceptPayments`, ou webhook `onCardAccountUpdated` |
+| Tableau de bord carte (virements, banque, litiges) | `pay.getCardDashboardLink()` → https://dashboard.stripe.com/, identifiants Stripe du responsable |
 | Tester la route webhook | `pay.createTestWebhookPayload(type, paiement)` → `{ body, headers }` à poster (supertest, `fastify.inject`) ; `pay.createTestWebhook` rend une `Request` |
 | Jouer le payeur en test (réussi, refusé, expiré) | `pay.simulateTestPayment(id, "completed" \| "failed" \| "expired")` |
 
 ## Étapes
 
-1. `npm install github:Technas-Organization/technas-pay-node#v0.10.0`
+1. `npm install github:Technas-Organization/technas-pay-node#v0.11.0`
 2. Créez `lib/pay.js` (ou `.ts`) :
    ```js
    import { createTechnasPay } from "@technas/pay";
@@ -51,11 +55,11 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 
 ## App mobile (Flutter)
 
-Ne réécrivez pas de routes : `pay.appRoutes({ authorize, resolveOrder, returnUrl, webhooks })`, montées sous `/api/technas-pay` (`.node` pour Express/Nest AVANT `express.json()`, `.nextHandlers(...)` pour Next.js). `resolveOrder(orderId, user)` relit la commande EN BASE et rend `null` si elle n'est pas à cet utilisateur. N'y mettez jamais un montant reçu de l'app. Côté app : `TechnasPayClient(baseUrl: '.../api/technas-pay')`.
+Ne réécrivez pas de routes : `pay.appRoutes({ authorize, resolveOrder, returnUrl, webhooks, card?, authorizeAdmin? })`, montées sous `/api/technas-pay` (`.node` pour Express/Nest AVANT `express.json()`, `.nextHandlers(...)` pour Next.js). `resolveOrder(orderId, user)` relit la commande EN BASE et rend `null` si elle n'est pas à cet utilisateur. N'y mettez jamais un montant reçu de l'app. Côté app : `TechnasPayClient(baseUrl: '.../api/technas-pay')`.
 
 ## Obligatoire
 
-- **`amount`** : un entier en unité principale (`5000` = 5 000 FCFA, jamais × 100), calculé côté serveur.
+- **`amount`** : en unité principale (`5000` = 5 000 FCFA, `12.5` = 12,50 €, jamais × 100), calculé côté serveur. Entier pour le mobile money ; décimales seulement par carte.
 - **`reference`** : l'identifiant unique de la commande.
 - **`customer.email`** et **`customer.name`** : de vrais champs du client, jamais inventés.
 - **`returnUrl`** : la page de retour, en https en production.
@@ -135,6 +139,27 @@ Ne réécrivez pas de routes : `pay.appRoutes({ authorize, resolveOrder, returnU
   - `refund.completed` : l'argent est arrivé, `sentAmount` sur son téléphone.
   - `refund.failed` : rien n'est parti et votre solde est recrédité. Proposez un autre moyen, ou refaites le même appel `refund` : il est permis après un échec.
 
+## Paiement par carte (`method: "card"`)
+
+Ce n'est PAS le même parcours que le mobile money. Ne le proposez que si l'utilisateur le demande.
+
+1. **Un compte carte d'abord, une seule fois.** Ajoutez dans les réglages de l'application un bouton « Activer le paiement par carte », réservé au responsable du compte. Au clic, côté serveur :
+   ```ts
+   const { url } = await pay.startCardOnboarding({ country: "FR", returnUrl: `${site}/reglages/carte?fin=1`, refreshUrl: `${site}/reglages/carte?relance=1` });
+   redirect(url);
+   ```
+   - `country` est le pays de l'UTILISATEUR (pas de ses clients). Demandez-le-lui, ne le devinez pas.
+   - Le lien expire en quelques minutes : générez-le au clic, ne l'envoyez jamais par e-mail.
+   - Sur `refreshUrl`, rappelez `startCardOnboarding` et redirigez à nouveau.
+   - Sur `returnUrl`, affichez `await pay.getCardAccount()` : `status` dit où il en est (`onboarding`, `under_review`, `restricted`, `enabled`) et `requirements` ce qui manque.
+   - Le responsable y donne son identité et sa banque au prestataire carte. Ni vous ni Technas ne voyez son IBAN.
+2. **Proposer la carte seulement si `canAcceptPayments` est vrai.** Gardez l'état en base via `onCardAccountUpdated`, ou relisez `getCardAccount()`. Sinon, ne montrez que le mobile money.
+3. **Faire payer :** `pay.askForPayment({ method: "card", amount: 49.9, currency: "EUR", reference, customer, returnUrl })`, puis `redirect(checkoutUrl)`. `currency` est obligatoire par carte. Le reste est identique : même webhook `onCompleted`, même règle « une référence = un essai », même `payment.expired` au bout d'une heure.
+4. **L'argent va directement sur le compte carte de l'utilisateur**, commission Technas déjà retirée. Il n'apparaît PAS dans `getBalance()` et ne passe pas par les reversements. Les virements vers sa banque se règlent dans son tableau de bord carte (`getCardDashboardLink()`).
+5. **Rembourser :** le même `pay.refund(paymentId, { amount? })`. La carte est remboursée depuis son compte carte (`refund.kind === "stripe"`), sans toucher au solde Technas ; `fees` est sans objet. La commission n'est pas rendue.
+6. **Erreur `card_account_not_ready` (409)** : le compte n'encaisse pas encore. `error.details.accountStatus` dit pourquoi. Ne réessayez pas : proposez le mobile money, ou renvoyez le responsable vers `startCardOnboarding`.
+7. **En test** (`tps_test_`), la carte de test `4242 4242 4242 4242`, une date future et n'importe quel code valident le paiement ; l'inscription de test accepte des données fictives.
+
 ## Rembourser
 
 - **Appel** : `pay.refund(paymentId)` rembourse tout ce qui reste ; `pay.refund(paymentId, { amount })` rembourse une partie.
@@ -155,6 +180,10 @@ Ne réécrivez pas de routes : `pay.appRoutes({ authorize, resolveOrder, returnU
 - **Total remboursé** : `payment.refundedAmount` additionne les deux sortes.
 
 ## Erreurs
+
+- `card_account_not_ready` (409) : paiement par carte demandé sans compte carte actif. Voir « Paiement par carte ».
+- `card_payments_unavailable` (503) : la carte n'est pas encore ouverte chez Technas. Proposez le mobile money.
+- `currency_required` : `method: "card"` sans `currency`.
 
 `error.code`, avec `error.retryable` (vrai : refaites **le même appel**, mêmes valeurs) et `error.details`.
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 — 2026-11-15
+
+Paiement par carte, repris de technas-pay-next#2 (qu'il remplace) :
+- `askForPayment({ method: "card", currency })`, avec des décimales autorisées par carte ;
+- `startCardOnboarding`, `getCardAccount`, `getCardDashboardLink` (https://dashboard.stripe.com/, identifiants Stripe du responsable) ;
+- `card_account_not_ready` (`details.accountStatus`), `onCardAccountUpdated`, remboursement `kind: "stripe"`, `Payment.method`.
+
+Routes de l'app : option `card` (`/methods` ouvre la carte si le compte est prêt), `POST /payments {method: "card"}` (références `orderId-card-N`), routes du marchand `GET /card/account` et `POST /card/onboarding` derrière `authorizeAdmin`. `toAppJson` porte `method`. Contrat v1 : 23 cas.
+
 ## 0.10.0 — 2026-11-15
 
 `pay.appRoutes({ authorize, resolveOrder, returnUrl?, webhooks? })` : les routes toutes faites que lit `technas_pay_flutter` (`GET /methods`, `POST /payments`, `GET /payments/{id}`, `POST /webhook`), avec des adaptateurs `.node` (Express, Nest, node:http), `.fetchHandler`/`.nextHandlers` (Next.js, Hono, Bun) et `.handle` (sans framework). Essais expirés sautés automatiquement, propriété de la commande vérifiée à chaque lecture, montant jamais pris de la requête. Contrat partagé `contract/app-contract.v1.json` (13 cas).
