@@ -9,7 +9,7 @@ Autres langages : [Python](https://github.com/Technas-Organization/technas-pay-p
 ## 1. Installer
 
 ```bash
-npm install github:Technas-Organization/technas-pay-node#v0.9.1
+npm install github:Technas-Organization/technas-pay-node#v0.10.0
 ```
 
 Le paquet se compile à l'installation, s'importe sous le nom `@technas/pay`, et n'a aucune dépendance. Node.js 18.17 ou plus récent.
@@ -124,6 +124,27 @@ await pay.setFxMode({ mode: "local", acceptRisk: true, markupPct: 2 });
 - **Sécurité** : chaque changement d'option vous est annoncé par `onFxModeUpdated`. Si ce n'est pas vous, prévenez Technas.
 - **Montants à centimes** : hors zone, un montant peut avoir des centimes (cedis…). Ne l'arrondissez pas.
 
+
+## Pour une app mobile : les routes toutes faites
+
+Votre app Flutter ([`technas_pay_flutter`](https://github.com/Technas-Organization/technas-pay-dart/tree/main/technas_pay_flutter)) appelle ces routes sans aucune glue. Vous ne fournissez que votre authentification et la lecture de la commande en base :
+
+```js
+const routes = pay.appRoutes({
+  authorize: (req) => verifierSession(req.headers.authorization), // votre utilisateur, ou null → 401
+  resolveOrder: async (orderId, user) => {                         // relue EN BASE, null → 404
+    const o = await db.orders.find({ id: orderId, userId: user.id });
+    return o && { amount: o.total, customer: { email: user.email, name: user.name } };
+  },
+  returnUrl: "https://votre-app.com/paiement/retour",
+  webhooks: { onCompleted: (e) => db.orders.markPaid(e.payment.reference) },
+});
+app.use("/api/technas-pay", routes.node);                          // Express / Nest, AVANT express.json()
+// Next.js, app/api/technas-pay/[...path]/route.ts :
+// export const { GET, POST } = routes.nextHandlers("/api/technas-pay");
+```
+
+Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{id}`, `POST /webhook` (adresse à déclarer à Technas). Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
 
 ## 3. Recevoir la confirmation
 

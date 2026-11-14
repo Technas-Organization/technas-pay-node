@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0 — 2026-11-15
+
+`pay.appRoutes({ authorize, resolveOrder, returnUrl?, webhooks? })` : les routes toutes faites que lit `technas_pay_flutter` (`GET /methods`, `POST /payments`, `GET /payments/{id}`, `POST /webhook`), avec des adaptateurs `.node` (Express, Nest, node:http), `.fetchHandler`/`.nextHandlers` (Next.js, Hono, Bun) et `.handle` (sans framework). Essais expirés sautés automatiquement, propriété de la commande vérifiée à chaque lecture, montant jamais pris de la requête. Contrat partagé `contract/app-contract.v1.json` (13 cas).
+
 ## 0.9.1 — 2026-11-14
 
 `toAppJson(payment)` : la vue sans secret qu'un backend renvoie à son app (contrat de `technas_pay_flutter`). Exemple Express : routes `POST /technas-pay/payments` et `GET /technas-pay/payments/:id`.
