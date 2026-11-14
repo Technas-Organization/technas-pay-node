@@ -189,5 +189,5 @@ test("sans crypto global (Node 18) : node:crypto prend le relais", async () => {
 
 test("toAppJson ne rend à l'app que le nécessaire", () => {
   const j = toAppJson({ id: "p", reference: "r-1", status: "pending", checkoutUrl: "https://c", amount: 1, currency: "XOF", expiresAt: null, commission: 9, netAmount: 1, metadata: { secret: 1 } });
-  assert.deepEqual(Object.keys(j).sort(), ["amount", "checkout_url", "currency", "expires_at", "id", "reference", "status"]);
+  assert.deepEqual(Object.keys(j).sort(), ["amount", "checkout_url", "currency", "expires_at", "id", "method", "reference", "status"]);
 });
