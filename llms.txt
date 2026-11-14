@@ -1,0 +1,16 @@
+# @technas/pay
+
+> SDK JavaScript/TypeScript sans framework (Express, Fastify, NestJS, Koa, Hono, node:http, Bun, Deno), côté serveur, pour encaisser du mobile money en Afrique via Technas Pay, rembourser et recharger son solde. Zéro dépendance. Montant seul, en F CFA : la devise (XOF ou XAF) suit le pays du client. Sous Next.js : @technas/pay-next (même API).
+
+Agents de code : lisez d'abord AGENTS.md (méthodes, champs obligatoires, sécurité, webhooks, erreurs).
+
+Webhooks : `pay.nodeHandler` (Express, Nest, node:http ; corps brut via express.raw), `pay.handleWebhook` (tout framework, rend { status, body }), `pay.webhookHandler` (Request → Response).
+
+Une référence = un essai : `retryReference(orderId, attempt)`. Relancez avec une NOUVELLE référence seulement après payment.expired (`canRetry`), jamais sur failed. Rejouer la référence d'un paiement expiré lève payment_expired (409).
+
+Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-même après avoir lu le risque (`getFxMode().risks.local`, puis `setFxMode({ mode: "local", acceptRisk: true })`). `converted` n'est pas ouvert (`fx_mode_unavailable`).
+
+- [AGENTS.md](AGENTS.md) : règles pour un agent de code
+- [README.md](README.md) : guide complet, avec un exemple de back-office de remboursement
+- [src/index.ts](src/index.ts) : types et commentaires de chaque fonction
+- [examples/](examples) : Express, Fastify
