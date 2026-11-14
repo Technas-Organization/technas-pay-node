@@ -1,8 +1,8 @@
 // Technas Pay avec Express.
-//   npm install express github:Technas-Organization/technas-pay-node#v0.9.0
+//   npm install express github:Technas-Organization/technas-pay-node#v0.9.1
 //   TECHNAS_PAY_SECRET=tps_test_... node examples/express.mjs
 import express from "express";
-import { createTechnasPay, retryReference } from "@technas/pay";
+import { createTechnasPay, retryReference, toAppJson } from "@technas/pay";
 
 // Côté serveur uniquement. Le secret est lu au premier appel.
 export const pay = createTechnasPay({ secret: process.env.TECHNAS_PAY_SECRET });
@@ -43,6 +43,35 @@ app.post("/orders/:id/pay", async (req, res, next) => {
     });
     order.paymentId = payment.id;
     res.redirect(303, payment.checkoutUrl);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 3. Les deux routes que lit une app Flutter (technas_pay_flutter). Authentifiez VOTRE
+//    utilisateur ici et vérifiez que la commande est la sienne.
+app.post("/technas-pay/payments", async (req, res, next) => {
+  try {
+    const id = String(req.body?.orderId ?? "");
+    const order = orders.get(id);
+    if (!order) return res.status(404).json({ code: "order_not_found" });
+    const payment = await pay.askForPayment({
+      amount: order.amount, // relu en base, jamais envoyé par l'app
+      reference: retryReference(id, order.attempt),
+      customer: { email: "awa@exemple.tg", name: "Awa Mensah" },
+      returnUrl: "https://votre-site.example/merci",
+    });
+    order.paymentId = payment.id;
+    res.json({ payment: toAppJson(payment) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/technas-pay/payments/:id", async (req, res, next) => {
+  try {
+    if (![...orders.values()].some((o) => o.paymentId === req.params.id)) return res.status(404).json({ code: "payment_not_found" });
+    res.json({ payment: toAppJson(await pay.getPayment(req.params.id)) });
   } catch (error) {
     next(error);
   }

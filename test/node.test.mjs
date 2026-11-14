@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { canRetry, createTechnasPay, retryReference, TechnasPayError } from "../dist/index.js";
+import { canRetry, createTechnasPay, retryReference, TechnasPayError, toAppJson } from "../dist/index.js";
 
 const API_KEY = "pk_abc-DEF_123";
 const WEBHOOK_SECRET = "ws_webhook-secret_456";
@@ -185,4 +185,9 @@ test("sans crypto global (Node 18) : node:crypto prend le relais", async () => {
     if (original) Object.defineProperty(globalThis, "crypto", original);
     else delete globalThis.crypto; // Node 18 : pas de crypto global au départ
   }
+});
+
+test("toAppJson ne rend à l'app que le nécessaire", () => {
+  const j = toAppJson({ id: "p", reference: "r-1", status: "pending", checkoutUrl: "https://c", amount: 1, currency: "XOF", expiresAt: null, commission: 9, netAmount: 1, metadata: { secret: 1 } });
+  assert.deepEqual(Object.keys(j).sort(), ["amount", "checkout_url", "currency", "expires_at", "id", "reference", "status"]);
 });

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 — 2026-11-14
+
+`toAppJson(payment)` : la vue sans secret qu'un backend renvoie à son app (contrat de `technas_pay_flutter`). Exemple Express : routes `POST /technas-pay/payments` et `GET /technas-pay/payments/:id`.
+
 ## 0.9.0 — 2026-11-14
 
 Cœur sans framework extrait de `@technas/pay-next` 0.8.0, même surface et mêmes règles. Ajouts :
