@@ -1,5 +1,5 @@
 // Technas Pay avec Fastify.
-//   npm install fastify github:Technas-Organization/technas-pay-node#v0.9.0
+//   npm install fastify github:Technas-Organization/technas-pay-node#v0.9.1
 import Fastify from "fastify";
 import { createTechnasPay } from "@technas/pay";
 

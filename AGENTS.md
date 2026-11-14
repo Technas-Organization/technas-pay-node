@@ -33,7 +33,7 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 
 ## Étapes
 
-1. `npm install github:Technas-Organization/technas-pay-node#v0.9.0`
+1. `npm install github:Technas-Organization/technas-pay-node#v0.9.1`
 2. Créez `lib/pay.js` (ou `.ts`) :
    ```js
    import { createTechnasPay } from "@technas/pay";

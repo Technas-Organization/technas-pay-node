@@ -120,6 +120,22 @@ export interface Payment {
   expiredAt: string | null;
 }
 
+/**
+ * Ce que VOTRE backend renvoie à votre app (`{ payment: toAppJson(p) }`) : ni commission, ni
+ * montant net, ni métadonnées. C'est le contrat que lit `technas_pay_flutter`.
+ */
+export function toAppJson(payment: Payment) {
+  return {
+    id: payment.id,
+    reference: payment.reference,
+    status: payment.status,
+    checkout_url: payment.checkoutUrl,
+    amount: payment.amount,
+    currency: payment.currency,
+    expires_at: payment.expiresAt,
+  };
+}
+
 export interface Balance {
   currency: string;
   amount: number;
