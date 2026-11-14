@@ -1,12 +1,14 @@
 # @technas/pay
 
-> SDK JavaScript/TypeScript sans framework (Express, Fastify, NestJS, Koa, Hono, node:http, Bun, Deno), côté serveur, pour encaisser du mobile money en Afrique via Technas Pay, rembourser et recharger son solde. Zéro dépendance. Montant seul, en F CFA : la devise (XOF ou XAF) suit le pays du client. Sous Next.js : @technas/pay-next (même API).
+> SDK JavaScript/TypeScript sans framework (Express, Fastify, NestJS, Koa, Hono, node:http, Bun, Deno), côté serveur, pour encaisser du mobile money en Afrique et des paiements par carte via Technas Pay, rembourser et recharger son solde. Zéro dépendance. Montant seul, en F CFA : la devise (XOF ou XAF) suit le pays du client. Sous Next.js : @technas/pay-next (même API).
 
 Agents de code : lisez d'abord AGENTS.md (méthodes, champs obligatoires, sécurité, webhooks, erreurs).
 
 Webhooks : `pay.nodeHandler` (Express, Nest, node:http ; corps brut via express.raw), `pay.handleWebhook` (tout framework, rend { status, body }), `pay.webhookHandler` (Request → Response).
 
 Une référence = un essai : `retryReference(orderId, attempt)`. Relancez avec une NOUVELLE référence seulement après payment.expired (`canRetry`), jamais sur failed. Rejouer la référence d'un paiement expiré lève payment_expired (409).
+
+Carte bancaire : `method: "card"` + `currency`, seulement quand `getCardAccount().canAcceptPayments` est vrai (compte carte ouvert une fois avec `startCardOnboarding`). L'argent va directement sur le compte carte de l'utilisateur, pas sur le solde Technas. Pour une app : `appRoutes({ card: true, authorizeAdmin })`.
 
 Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-même après avoir lu le risque (`getFxMode().risks.local`, puis `setFxMode({ mode: "local", acceptRisk: true })`). `converted` n'est pas ouvert (`fx_mode_unavailable`).
 

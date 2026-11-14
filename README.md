@@ -9,7 +9,7 @@ Autres langages : [Python](https://github.com/Technas-Organization/technas-pay-p
 ## 1. Installer
 
 ```bash
-npm install github:Technas-Organization/technas-pay-node#v0.10.0
+npm install github:Technas-Organization/technas-pay-node#v0.11.0
 ```
 
 Le paquet se compile à l'installation, s'importe sous le nom `@technas/pay`, et n'a aucune dépendance. Node.js 18.17 ou plus récent.
@@ -144,7 +144,61 @@ app.use("/api/technas-pay", routes.node);                          // Express / 
 // export const { GET, POST } = routes.nextHandlers("/api/technas-pay");
 ```
 
-Routes : `GET /methods?orderId=`, `POST /payments` `{orderId}`, `GET /payments/{id}`, `POST /webhook` (adresse à déclarer à Technas). Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
+Routes : `GET /methods?orderId=`, `POST /payments` `{orderId, method?}`, `GET /payments/{id}`, `POST /webhook` (adresse à déclarer à Technas).
+
+**Carte dans l'app** : ajoutez `card: true` et, pour l'écran d'administration du marchand, `authorizeAdmin: (req) => adminOuNull(req)`. `/methods` n'ouvre la carte que si le compte carte est prêt et que `resolveOrder` rend une `currency`. Le marchand dispose alors de `GET /card/account` et `POST /card/onboarding` (`{country, returnUrl, refreshUrl}`). Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
+
+### Paiement par carte bancaire
+
+Le mobile money arrive sur votre solde Technas, reversé ensuite sur votre numéro. La carte suit un autre chemin : vous avez **votre propre compte carte**, le client le paie directement, et la commission Technas est retirée au passage. Technas ne détient pas cet argent : il n'apparaît pas dans `getBalance()`.
+
+**1. Ouvrir le compte carte, une seule fois.** C'est le responsable du compte qui le fait, depuis vos réglages :
+
+```ts
+// app/reglages/carte/actions.ts
+"use server";
+import { redirect } from "next/navigation";
+import { pay } from "@/lib/pay";
+
+export async function activerLaCarte() {
+  const { url } = await pay.startCardOnboarding({
+    country: "FR", // VOTRE pays, pas celui de vos clients
+    returnUrl: "https://votre-site.com/reglages/carte?fin=1",
+    refreshUrl: "https://votre-site.com/reglages/carte?relance=1", // lien expiré : rappelez activerLaCarte
+  });
+  redirect(url); // le prestataire carte y demande l'identité et la banque ; Technas ne voit pas l'IBAN
+}
+```
+
+Ensuite, `await pay.getCardAccount()` dit où il en est :
+
+| `status` | Ce que ça veut dire |
+|---|---|
+| `not_started` | Jamais ouvert |
+| `onboarding` | Inscription commencée, pas finie : rappelez `startCardOnboarding` |
+| `under_review` | Tout est donné, vérification en cours |
+| `restricted` | Il manque quelque chose (`requirements`) ou le compte est suspendu (`disabledReason`) |
+| `enabled` | La carte est ouverte (`canAcceptPayments: true`) |
+
+Le webhook `onCardAccountUpdated` vous prévient de chaque changement. Une fois l'inscription finie, `getCardDashboardLink()` rend https://dashboard.stripe.com/ : le responsable s'y connecte avec SES identifiants Stripe, choisis à l'inscription, pour régler ses virements et suivre ses litiges. Ce n'est pas un lien à usage unique.
+
+**2. Faire payer par carte**, seulement si `canAcceptPayments` est vrai :
+
+```ts
+const { checkoutUrl } = await pay.askForPayment({
+  method: "card",
+  amount: 49.9, // 49,90 € : les décimales sont permises par carte
+  currency: "EUR", // obligatoire par carte
+  reference: commandeId,
+  customer: { email, name },
+  returnUrl: "https://votre-site.com/merci",
+});
+redirect(checkoutUrl);
+```
+
+Tout le reste ne change pas : webhook `onCompleted`, une référence = un essai, `payment.expired` au bout d'une heure, `refund` pour rembourser (sur la carte, depuis votre compte carte ; la commission n'est pas rendue). Sans compte prêt, l'appel lève `card_account_not_ready` (409) : proposez alors le mobile money.
+
+En mode test, payez avec la carte `4242 4242 4242 4242`, une date future et n'importe quel code.
 
 ## 3. Recevoir la confirmation
 
@@ -366,6 +420,8 @@ En test (`tps_test_`), un remboursement est terminé aussitôt, avec des frais r
 | `pay.topUpBalance({ amount, currency })` | Recharger votre solde, sans commission |
 | `pay.getFxMode()` / `pay.setFxMode({ mode, acceptRisk, markupPct? })` | Votre option hors zone CFA, ses risques, les pays ouverts |
 | `pay.setCountryRules({ allowed?, excluded? })` | Les pays où vous vendez |
+| `pay.startCardOnboarding({ country, returnUrl, refreshUrl })` | Ouvrir ou finir votre compte carte (voir « Paiement par carte bancaire ») |
+| `pay.getCardAccount()` / `pay.getCardDashboardLink()` | État de votre compte carte / son tableau de bord |
 | `pay.getBalance()` | Votre solde : ce que Technas vous doit, par devise, après commission |
 | `pay.listTransactions({ limit, status, cursor })` | L'historique de vos paiements, par pages |
 | `pay.getSettlements()` | Vos reversements : `amount` quitte votre solde, `fee` (frais mobile money, à votre charge) en est déduit |
