@@ -2,7 +2,7 @@
 
 Encaissez des paiements mobile money et par carte via Technas depuis n'importe quel serveur JavaScript : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, Deno, fonctions serverless. Sous Next.js App Router, [`@technas/pay-next`](https://github.com/Technas-Organization/technas-pay-next) ajoute ce qu'il faut à ce même cœur.
 
-**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** Carte : 1 % (plus les frais de votre compte carte). Mobile money : 2 % (les frais de l'opérateur sont payés par le client). Sans abonnement, et une clé de test sans papier pour commencer.
+**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** Carte : 1 % (plus les frais de votre compte carte, selon le pays : environ 1,5 % + 0,25 € en Europe). Mobile money : 2 % (les frais de l'opérateur sont payés par le client). Sans abonnement, et une clé de test sans papier pour commencer.
 
 Devises et pays, pièces demandées, versements, comparaison avec les autres prestataires : [le hub Technas Pay](https://github.com/Technas-Organization/technas-pay).
 
