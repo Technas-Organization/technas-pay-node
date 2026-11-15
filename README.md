@@ -1,6 +1,10 @@
 # @technas/pay
 
-Encaissez des paiements mobile money via Technas depuis n'importe quel serveur JavaScript : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, Deno, fonctions serverless. Sous Next.js App Router, [`@technas/pay-next`](https://github.com/Technas-Organization/technas-pay-next) ajoute ce qu'il faut à ce même cœur.
+Encaissez des paiements mobile money et par carte via Technas depuis n'importe quel serveur JavaScript : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, Deno, fonctions serverless. Sous Next.js App Router, [`@technas/pay-next`](https://github.com/Technas-Organization/technas-pay-next) ajoute ce qu'il faut à ce même cœur.
+
+**Technas Pay réunit le mobile money et la carte dans un seul SDK, du serveur jusqu'à l'app Flutter.** 2 % par paiement réussi, sans abonnement, et une clé de test sans papier pour commencer.
+
+Devises et pays, pièces demandées, versements, comparaison avec les autres prestataires : [le hub Technas Pay](https://github.com/Technas-Organization/technas-pay).
 
 Vous intégrez avec un assistant de code (Codex, Claude Code…) ? Dites-lui de lire [AGENTS.md](AGENTS.md), livré dans le paquet avec [llms.txt](llms.txt) (`node_modules/@technas/pay/AGENTS.md`).
 
