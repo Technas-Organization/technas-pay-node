@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
-import { canRetry, createTechnasPay, currencyForCountry, isFinal, TechnasPayError, WebhookVerificationError } from "../dist/index.js";
+import { canRetry, createTechnasPay, currencyForCountry, isFinal, normalizeRefundKind, TechnasPayError, WebhookVerificationError } from "../dist/index.js";
 
 const SECRET = "tps_test_pk_abc-DEF_123.ws_webhook-secret_456";
 const WEBHOOK_SECRET = "ws_webhook-secret_456";
@@ -570,4 +570,25 @@ test("l'avis card_account.updated arrive dans onCardAccountUpdated", async () =>
   assert.equal(res.status, 200);
   assert.equal(recu.account.canAcceptPayments, true);
   assert.equal(recu.account.status, "enabled");
+});
+
+test("remboursement par carte : un ancien \"stripe\" reçu ressort \"card\", un \"card\" reste \"card\"", async () => {
+  for (const recu of ["stripe", "card"]) {
+    const pay = createTechnasPay({
+      secret: SECRET, baseUrl: "https://gw.test",
+      fetch: async () => Response.json({ ...REFUND, kind: recu, status: "completed", fee: 0, balance_debit: 0 }),
+    });
+    assert.equal((await pay.getRefund("rf1")).kind, "card", `lu depuis "${recu}"`);
+    assert.equal((await pay.refund("p1")).kind, "card", `rendu depuis "${recu}"`);
+
+    const recus = [];
+    const handler = createTechnasPay({ secret: SECRET }).webhookHandler({ onRefund: (e) => recus.push(e) });
+    const body = JSON.stringify({ id: `e-${recu}`, type: "refund.completed", created_at: "x", data: { ...REFUND, kind: recu } });
+    assert.equal((await handler(request(body, sign(body)))).status, 200);
+    assert.equal(recus[0].refund.kind, "card", `webhook depuis "${recu}"`);
+  }
+  assert.equal(normalizeRefundKind("stripe"), "card");
+  assert.equal(normalizeRefundKind("card"), "card");
+  assert.equal(normalizeRefundKind("external"), "external");
+  assert.equal(normalizeRefundKind(undefined), "payout");
 });
