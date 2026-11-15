@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 — 2026-11-15
+
+Seuil d'identité du compte :
+- `pay.getAccountKyc()` (`GET /v1/account/kyc`) → `AccountKyc` : `stage`, `level`, `collectedXof`, `thresholdXof`, `graceDays`, `deadline`, `waiverUntil`, `reason`, `consoleUrl`… Valeurs inconnues de `stage`, `level`, `reason` gardées telles quelles ;
+- avis `account.kyc_required` → `onKycRequired(event)`, contenu typé `event.kyc` (`KycRequiredEvent`) ;
+- erreurs `kyc_required` et `contract_required` (409, pas à réessayer) : `error.details.consoleUrl`, `error.details.version` en plus de `reason`.
+
 ## 0.11.1 — 2026-11-15
 
 - Remboursement par carte : `kind: "card"` (type `RefundKind = "payout" | "external" | "card"`). Un `"stripe"` encore renvoyé par l'API pendant la transition est lu comme `"card"` (`normalizeRefundKind`).
