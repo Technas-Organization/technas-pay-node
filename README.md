@@ -471,7 +471,7 @@ const kyc = await pay.getAccountKyc();
 - **Un même événement peut arriver plusieurs fois.** Technas relivre tant que votre route ne répond pas 2xx, pendant environ 3 jours. `event.id` permet d'ignorer un doublon.
 - **Un refus n'est pas définitif.** Le client peut réessayer sur la même page, et `onCompleted` arriver après `onFailed`. Seul `expired` l'est (voir « La règle de relance »).
 - **Retour au site sur succès seulement.** Après un refus ou un abandon, le client reste sur la page de paiement.
-- **Une référence = un essai.** Relancer `askForPayment` avec la même référence rend le même essai (utile après une coupure). Pour une nouvelle tentative, attendez `payment.expired` (ou `canRetry`), puis utilisez une NOUVELLE référence ; l'ancienne lève `payment_expired`.
+- **Une référence = un essai.** Relancer `askForPayment` avec la même référence rend le même essai (utile après une coupure). Pour une nouvelle tentative (après `payment.expired`, ou quand le client change d'offre), utilisez une NOUVELLE référence ; l'ancienne lève `payment_expired` (essai expiré) ou `reference_conflict` (autre montant).
 - **Reprise.** Si `error.retryable` est vrai, refaites le même appel avec la même référence.
 
 ## Autres fonctions
