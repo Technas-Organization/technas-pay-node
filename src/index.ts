@@ -252,13 +252,17 @@ export interface PayoutDestinationEvent {
   destination: PayoutDestinationView;
 }
 
+/** Comment un remboursement est rendu : mobile money (`payout`), hors plateforme (`external`) ou sur la carte (`card`). */
+export type RefundKind = "payout" | "external" | "card";
+
 /** Qui paie les frais mobile money du renvoi d'un remboursement. */
 export type RefundFees = "partner" | "customer";
 
 export interface Refund {
   /**
    * `payout` : renvoyé par Technas sur le numéro mobile money qui a payé (débité de votre solde).
-   * `stripe` : paiement par carte, remboursé sur la carte depuis VOTRE compte carte (solde Technas intact).
+   * `card` : paiement par carte, remboursé sur la carte depuis VOTRE compte carte (solde Technas intact).
+   *   Un ancien `"stripe"` renvoyé par l'API est lu comme `"card"`.
    * `external` : fait hors plateforme, seulement enregistré.
    */
   id: string;
@@ -279,8 +283,8 @@ export interface Refund {
   status: "pending" | "completed" | "failed";
   /** Raison d'un échec. Le solde est alors recrédité de `balanceDebit`. */
   failure: string | null;
-  /** `payout` : renvoyé par Technas. `external` : fait hors plateforme, seulement enregistré. */
-  kind: "payout" | "external" | "stripe";
+  /** `payout` : renvoyé par Technas. `external` : fait hors plateforme, seulement enregistré. `card` : remboursé sur la carte. */
+  kind: RefundKind;
   /** Remboursement enregistré : le moyen utilisé ("Flooz", "Espèces"…), la note, qui l'a fait. */
   method: string | null;
   note: string | null;
@@ -319,7 +323,7 @@ export interface TopUpEvent {
  * Où en est votre compte de paiement par carte.
  * - `not_started` : jamais ouvert, appelez `startCardOnboarding`.
  * - `onboarding` : inscription commencée, pas finie (identité, banque…) : renvoyez le responsable sur un lien neuf.
- * - `under_review` : tout est donné, Stripe vérifie (quelques minutes à quelques jours).
+ * - `under_review` : tout est donné, le prestataire carte vérifie (quelques minutes à quelques jours).
  * - `restricted` : il manque quelque chose (`requirements`) ou le compte est suspendu (`disabledReason`).
  * - `enabled` : les paiements par carte sont ouverts.
  */
@@ -334,7 +338,7 @@ export interface CardAccount {
   detailsSubmitted: boolean;
   /** Pays du compte (le vôtre, pas celui de vos clients). */
   country: string | null;
-  /** Ce qui manque encore, en codes Stripe (`external_account`, `individual.verification.document`…). */
+  /** Ce qui manque encore, en codes du prestataire carte (`external_account`, `individual.verification.document`…). */
   requirements: string[];
   disabledReason: string | null;
   testMode: boolean;
@@ -757,6 +761,13 @@ function parseFxMode(raw: any): FxMode {
   };
 }
 
+/** `"stripe"` (ancien nom, encore envoyé pendant la transition) devient `"card"`. */
+export function normalizeRefundKind(kind: unknown): RefundKind {
+  if (kind === "stripe" || kind === "card") return "card";
+  if (kind === "external") return "external";
+  return "payout";
+}
+
 function parseRefund(raw: any): Refund {
   return {
     id: raw.id,
@@ -770,7 +781,7 @@ function parseRefund(raw: any): Refund {
     currency: raw.currency,
     status: raw.status,
     failure: raw.failure ?? null,
-    kind: raw.kind ?? "payout",
+    kind: normalizeRefundKind(raw.kind),
     method: raw.method ?? null,
     note: raw.note ?? null,
     recordedBy: raw.recorded_by ?? null,
@@ -1121,9 +1132,9 @@ export function createTechnasPay(options: TechnasPayOptions) {
     },
 
     /**
-     * Le tableau de bord carte (virements, banque, litiges) : https://dashboard.stripe.com/. Le
-     * responsable s'y connecte avec SES identifiants Stripe (choisis à l'inscription) ; ce n'est
-     * pas un lien à usage unique.
+     * Le tableau de bord de votre compte carte (virements, banque, litiges). Le responsable s'y
+     * connecte avec SES identifiants du compte carte (choisis à l'inscription) ; ce n'est pas un
+     * lien à usage unique.
      */
     async getCardDashboardLink(): Promise<{ url: string }> {
       const raw = await call<any>("POST", "/v1/card/dashboard-link", {});

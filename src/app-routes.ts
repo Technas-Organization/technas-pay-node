@@ -211,7 +211,7 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
           body: {
             amount: order.amount,
             currency: order.currency ?? null,
-            // La carte s'ouvre avec le compte carte du marchand (Stripe Connect) : à venir.
+            // La carte ne s'ouvre que si le compte carte du marchand est prêt (cardMethod).
             methods: [{ method: "mobile_money", available: true, reason: null }, await cardMethod(order)],
           },
         };
