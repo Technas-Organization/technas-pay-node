@@ -259,7 +259,7 @@ En réel, un compte sans pièce d'identité vérifiée voit ses NOUVEAUX paiemen
 | `risk_not_accepted` | Montrer `error.details.risk` à l'utilisateur ; n'activer qu'avec son accord explicite |
 | `fx_mode_unavailable`, `fx_channel_unavailable` | Mode `converted` pas ouvert : proposer `local` (avec l'accord de l'utilisateur sur le risque) ou rester en `none` |
 | `quote_expired` | Le client rechoisit son pays sur la page, rien à faire côté code |
-| `reference_conflict` | Même référence, autres valeurs : ne pas réutiliser la référence |
+| `reference_conflict` | Même référence, autres valeurs (le client a changé d'offre) : nouvel essai `retryReference(id, n + 1)`, jamais la même référence |
 | `payment_in_progress` | Réessayer dans une minute, même appel |
 | `payment_not_found`, `refund_not_found` | Mauvais identifiant ou autre compte |
 | `payment_expired` | Cette référence est un essai expiré : nouveau paiement avec une NOUVELLE référence, jamais le même appel |
