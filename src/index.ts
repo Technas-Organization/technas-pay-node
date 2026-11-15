@@ -32,7 +32,7 @@ export function canRetry(payment: { status: PaymentStatus | string }): boolean {
 
 /**
  * Une référence = un essai : `${orderId}-${attempt}`. Gardez `attempt` en base (1, 2, 3…) et
- * passez à `attempt + 1` seulement après `payment.expired`.
+ * passez à `attempt + 1` après `payment.expired`, ou quand le client change d'offre (autre montant).
  */
 export function retryReference(orderId: string | number, attempt: number): string {
   if (!Number.isInteger(attempt) || attempt < 1) {
@@ -69,7 +69,8 @@ export interface AskForPaymentInput {
    * UNE RÉFÉRENCE = UN ESSAI. La même référence ne crée jamais deux paiements : la rejouer rend le
    * même essai (utile après une coupure réseau). Pour un nouvel essai après `payment.expired`,
    * générez une NOUVELLE référence (ex. `CMD-42-2`) : rejouer celle d'un paiement expiré lève
-   * `TechnasPayError` `payment_expired` (409).
+   * `TechnasPayError` `payment_expired` (409). Le client change d'offre : nouvel essai aussi ;
+   * la référence d'un autre montant lève `reference_conflict` (409).
    */
   reference: string;
   /**
@@ -537,6 +538,8 @@ export class TechnasPayError extends Error {
     /**
      * `payment_expired` : la référence passée à `askForPayment` est celle d'un essai expiré ; créez
      * un nouveau paiement avec une NOUVELLE référence (ne réessayez pas le même appel).
+     * `reference_conflict` : la référence est celle d'un essai d'un autre montant (le client a
+     * changé d'offre) ; même remède : nouvel essai, `retryReference(orderId, n + 1)`.
      * Précisions selon le code : `missingAmount` et `currency` pour `insufficient_balance`
      * (rechargez au moins ce montant avec `topUpBalance`), `refundableAmount` pour
      * `refund_exceeds_payment`.

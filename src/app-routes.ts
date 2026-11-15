@@ -59,7 +59,7 @@ export interface AppRoutesOptions<User> {
   returnUrl?: string;
   /** Vos fonctions de webhook (`onCompleted` marque la commande payée…). Route : POST /webhook. */
   webhooks?: WebhookHandlers;
-  /** Nombre maximal d'essais expirés sautés pour une commande (20 par défaut). */
+  /** Nombre maximal d'essais sautés (expirés, ou d'un autre montant) pour une commande (20 par défaut). */
   maxAttempts?: number;
   /**
    * Proposer la carte. Elle n'est ouverte que si votre compte carte est prêt
@@ -123,7 +123,8 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
 
   async function startPayment(orderId: string, order: AppOrder, method: "mobile_money" | "card"): Promise<Payment> {
     // Une référence = un essai : `orderId-1`, puis `-2`… Un essai expiré lève payment_expired,
-    // on passe au suivant. Un essai en cours (ou payé) est rendu tel quel : jamais deux paiements.
+    // un essai d'un autre montant (le client a changé d'offre) lève reference_conflict : on passe
+    // au suivant, jamais un refus. Un essai en cours (ou payé) du même montant est rendu tel quel.
     for (let attempt = 1; ; attempt++) {
       try {
         return await pay.askForPayment({
@@ -138,7 +139,11 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
           metadata: { ...(order.metadata ?? {}), order_id: orderId },
         });
       } catch (e) {
-        if (e instanceof TechnasPayError && e.code === "payment_expired" && attempt < maxAttempts) continue;
+        if (
+          e instanceof TechnasPayError &&
+          (e.code === "payment_expired" || e.code === "reference_conflict") &&
+          attempt < maxAttempts
+        ) continue;
         throw e;
       }
     }

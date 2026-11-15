@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 — 2026-11-15
+
+Le client change d'offre ou revient plus tard :
+- routes toutes faites : un essai d'un autre montant (`reference_conflict`, 409) est sauté comme un essai expiré : l'essai suivant est créé (même borne `maxAttempts`), jamais un refus. Contrat v1 : 24 cas ;
+- documentation (README, AGENTS.md, llms.txt) : une référence = un essai, payée seulement sur `payment.completed`, un essai non payé ne bloque jamais un nouvel essai, `getPayment` au retour du client, `refund` si deux pages ont été payées.
+
 ## 0.12.1 — 2026-11-15
 
 - Avis `account.kyc_required` : `event.kyc` porte aussi `stage`, `blockReason`, `daysElapsed`, `graceDays` et `firstCollectedAt`, comme `getAccountKyc()`. Facultatifs : `null` sur un avis plus ancien. `reason` ne change pas de sens.
