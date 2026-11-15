@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1 — 2026-11-15
+
+- Avis `account.kyc_required` : `event.kyc` porte aussi `stage`, `blockReason`, `daysElapsed`, `graceDays` et `firstCollectedAt`, comme `getAccountKyc()`. Facultatifs : `null` sur un avis plus ancien. `reason` ne change pas de sens.
+
 ## 0.12.0 — 2026-11-15
 
 Seuil d'identité du compte :

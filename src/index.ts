@@ -426,6 +426,18 @@ export interface KycRequiredEvent {
     deadline: string | null;
     blocked: boolean;
     consoleUrl: string;
+    /**
+     * Les champs suivants reprennent `getAccountKyc()` au moment de l'avis. Facultatifs :
+     * `null` sur un avis plus ancien qui ne les porte pas.
+     */
+    stage: KycStage | null;
+    /** Ce qui bloque, ou bloquera : `amount` ou `duration`, sinon `null`. */
+    blockReason: KycReason | null;
+    /** Jours écoulés depuis le premier paiement réel encaissé. */
+    daysElapsed: number | null;
+    /** Délai, en jours, après le premier paiement réel encaissé. */
+    graceDays: number | null;
+    firstCollectedAt: string | null;
   };
 }
 
@@ -725,6 +737,11 @@ function parseEvent(raw: any): TechnasPayEvent {
         deadline: d.deadline ?? null,
         blocked: Boolean(d.blocked),
         consoleUrl: d.console_url,
+        stage: d.stage ?? null,
+        blockReason: d.block_reason ?? null,
+        daysElapsed: d.days_elapsed ?? null,
+        graceDays: d.grace_days ?? null,
+        firstCollectedAt: d.first_collected_at ?? null,
       },
     };
   }
