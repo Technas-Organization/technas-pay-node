@@ -13,7 +13,7 @@ Autres langages : [Python](https://github.com/Technas-Organization/technas-pay-p
 ## 1. Installer
 
 ```bash
-npm install github:Technas-Organization/technas-pay-node#v0.12.0
+npm install github:Technas-Organization/technas-pay-node#v0.12.1
 ```
 
 Le paquet se compile à l'installation, s'importe sous le nom `@technas/pay`, et n'a aucune dépendance. Node.js 18.17 ou plus récent.
@@ -417,7 +417,7 @@ const kyc = await pay.getAccountKyc();
 
 - `stage` : `ok`, `soon` (seuil proche), `blocked`, `verified`, `not_applicable` (`applies` faux). Une valeur que cette version ne connaît pas est rendue telle quelle.
 - À montrer au **marchand** (son tableau de bord), jamais au client final.
-- L'avis `account.kyc_required` arrive dans `onKycRequired` à 80 % du seuil, 7 jours avant l'échéance, puis au premier refus : `event.kyc` porte `reason` (`amount_80`, `deadline_7d`, `blocked`), `collectedXof`, `thresholdXof`, `deadline`, `blocked` et `consoleUrl`. Prévenez le responsable.
+- L'avis `account.kyc_required` arrive dans `onKycRequired` à 80 % du seuil, 7 jours avant l'échéance, puis au premier refus : `event.kyc` porte `reason` (`amount_80`, `deadline_7d`, `blocked`), `collectedXof`, `thresholdXof`, `deadline`, `blocked` et `consoleUrl`, puis l'état de `getAccountKyc()` au moment de l'avis : `stage`, `blockReason` (`amount`, `duration`), `daysElapsed`, `graceDays`, `firstCollectedAt` (`null` sur un avis plus ancien). Prévenez le responsable.
 - Sur `kyc_required` : ne réessayez pas. Proposez la carte, ou expliquez au client que le paiement mobile money n'est pas disponible pour le moment. `error.details.consoleUrl` et `error.details.reason` (`amount` ou `duration`) disent où et pourquoi.
 - Les chiffres (1 000 000, 30) viennent de l'API (`thresholdXof`, `graceDays`) : ne les écrivez pas en dur.
 
