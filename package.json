@@ -1,6 +1,6 @@
 {
   "name": "@technas/pay",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Encaisser des paiements mobile money via Technas depuis n'importe quel serveur JavaScript : Express, Fastify, NestJS, Hono, Node, Bun, Deno.",
   "license": "MIT",
   "type": "module",

@@ -13,7 +13,7 @@ Autres langages : [Python](https://github.com/Technas-Organization/technas-pay-p
 ## 1. Installer
 
 ```bash
-npm install github:Technas-Organization/technas-pay-node#v0.12.1
+npm install github:Technas-Organization/technas-pay-node#v0.13.0
 ```
 
 Le paquet se compile à l'installation, s'importe sous le nom `@technas/pay`, et n'a aucune dépendance. Node.js 18.17 ou plus récent.
@@ -150,7 +150,7 @@ app.use("/api/technas-pay", routes.node);                          // Express / 
 
 Routes : `GET /methods?orderId=`, `POST /payments` `{orderId, method?}`, `GET /payments/{id}`, `POST /webhook` (adresse à déclarer à Technas).
 
-**Carte dans l'app** : ajoutez `card: true` et, pour l'écran d'administration du marchand, `authorizeAdmin: (req) => adminOuNull(req)`. `/methods` n'ouvre la carte que si le compte carte est prêt et que `resolveOrder` rend une `currency`. Le marchand dispose alors de `GET /card/account` et `POST /card/onboarding` (`{country, returnUrl, refreshUrl}`). Les essais expirés sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
+**Carte dans l'app** : ajoutez `card: true` et, pour l'écran d'administration du marchand, `authorizeAdmin: (req) => adminOuNull(req)`. `/methods` n'ouvre la carte que si le compte carte est prêt et que `resolveOrder` rend une `currency`. Le marchand dispose alors de `GET /card/account` et `POST /card/onboarding` (`{country, returnUrl, refreshUrl}`). Les essais expirés, ou d'un autre montant (le client a changé d'offre), sont sautés tout seuls (`42-1`, `42-2`…) : rien à stocker. Contrat : [`contract/app-contract.v1.json`](contract/app-contract.v1.json), rejoué par ce paquet et par le client Flutter.
 
 ### Paiement par carte bancaire
 
@@ -291,6 +291,43 @@ const p = await pay.getPaymentByReference(commande.referencePaiement);
 if (canRetry(p)) {
   const nouvelle = `${commande.id}-${commande.tentatives + 1}`;
   const { checkoutUrl } = await pay.askForPayment({ ...demande, reference: nouvelle });
+}
+```
+
+#### Le client change d'offre ou revient plus tard
+
+Une référence = un essai : une autre offre, ou un retour après expiration, c'est un NOUVEL essai avec `retryReference(factureId, n + 1)`. Réutiliser la référence d'un autre montant lève `reference_conflict` (409), celle d'un essai expiré `payment_expired` (409) ; les routes toutes faites le font seules. Un essai `pending` ou `failed` ne bloque jamais un nouvel essai demandé par le client. La facture n'est payée que sur `payment.completed` (jamais sur `returnUrl`). Au retour du client, relisez le dernier essai avec `getPayment` avant de répondre. Si le client a payé deux pages, n'activez rien deux fois et remboursez l'essai en trop avec `refund`.
+
+```js
+import { retryReference } from "@technas/pay";
+
+// Au clic « Payer » : la facture et l'offre choisie (son montant).
+async function payer(facture, montant, customer) {
+  if (facture.dernierPaymentId) {
+    const dernier = await pay.getPayment(facture.dernierPaymentId); // Technas, pas seulement la base
+    if (dernier.status === "completed") return { dejaPayee: true };
+  }
+  // pending, failed, expired ou autre montant : un NOUVEL essai, jamais un refus.
+  const n = facture.essais + 1;
+  const p = await pay.askForPayment({
+    amount: montant,
+    reference: retryReference(facture.id, n),
+    customer,
+    returnUrl: `https://exemple.tg/factures/${facture.id}`,
+    metadata: { facture_id: facture.id },
+  });
+  await db.factures.update(facture.id, { essais: n, dernierPaymentId: p.id });
+  return { checkoutUrl: p.checkoutUrl };
+}
+
+// Webhook : la facture n'est payée QU'ici.
+async function onCompleted(event) {
+  const facture = await db.factures.get(event.payment.metadata.facture_id);
+  if (facture.payeePar && facture.payeePar !== event.payment.id) {
+    await pay.refund(event.payment.id); // l'autre page a aussi été payée : rembourser celle-ci
+    return;
+  }
+  await db.factures.update(facture.id, { payeePar: event.payment.id, montantPaye: event.payment.amount });
 }
 ```
 
