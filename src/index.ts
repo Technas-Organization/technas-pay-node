@@ -362,6 +362,73 @@ export interface CardAccountEvent {
   account: CardAccount;
 }
 
+/**
+ * Seuil d'identité du compte (`getAccountKyc()`). En réel, un compte sans pièce d'identité
+ * vérifiée voit ses NOUVEAUX paiements mobile money refusés (`kyc_required`) au-delà de
+ * `thresholdXof` F CFA encaissés en cumul, ou `graceDays` jours après son premier paiement réel
+ * encaissé. Rien de ce qui existe n'est bloqué ; la carte n'est pas concernée. Ces chiffres
+ * viennent de l'API : ne les écrivez jamais en dur.
+ *
+ * - `ok` : rien à faire pour l'instant.
+ * - `soon` : seuil proche (montant ou échéance) : le responsable dépose sa pièce dans la console.
+ * - `blocked` : nouveaux paiements mobile money refusés jusqu'à la vérification.
+ * - `verified` : pièce vérifiée, plus de seuil.
+ * - `not_applicable` : le seuil ne s'applique pas à ce compte (`applies` faux).
+ *
+ * Une valeur inconnue de cette version du paquet est rendue telle quelle.
+ */
+export type KycStage = "ok" | "soon" | "blocked" | "verified" | "not_applicable" | (string & {});
+/** Niveau de vérification obtenu : `none`, `identity` (pièce d'identité), `business` (entreprise). */
+export type KycLevel = "none" | "identity" | "business" | (string & {});
+/** Ce qui bloque, ou bloquera : `amount` (cumul encaissé) ou `duration` (délai depuis le premier paiement). */
+export type KycReason = "amount" | "duration" | (string & {});
+
+export interface AccountKyc {
+  /** Faux : le seuil ne s'applique pas à ce compte (`stage === "not_applicable"`). */
+  applies: boolean;
+  stage: KycStage;
+  level: KycLevel;
+  /** Jours écoulés depuis le premier paiement réel encaissé, `null` avant. */
+  daysElapsed: number | null;
+  /** Cumul à partir duquel `stage` passe à `soon`. */
+  warnFromXof: number;
+  /** Date à partir de laquelle `stage` passe à `soon`, `null` avant le premier paiement. */
+  warnFromDate: string | null;
+  /** Cumul encaissé en réel, en F CFA. */
+  collectedXof: number;
+  /** Seuil de cumul, en F CFA. Lu ici, jamais écrit en dur. */
+  thresholdXof: number;
+  /** Délai, en jours, après le premier paiement réel encaissé. Lu ici, jamais écrit en dur. */
+  graceDays: number;
+  firstCollectedAt: string | null;
+  /** Échéance du délai, `null` avant le premier paiement. */
+  deadline: string | null;
+  /** Délai accordé par Technas jusqu'à cette date, sinon `null`. */
+  waiverUntil: string | null;
+  blocked: boolean;
+  reason: KycReason | null;
+  /** Où le RESPONSABLE du compte dépose sa pièce. */
+  consoleUrl: string;
+}
+
+/**
+ * Avis `account.kyc_required` : envoyé à 80 % du seuil (`amount_80`), 7 jours avant l'échéance
+ * (`deadline_7d`), puis au premier refus (`blocked`). Prévenez le RESPONSABLE du compte, pas le client.
+ */
+export interface KycRequiredEvent {
+  id: string;
+  type: "account.kyc_required";
+  createdAt: string;
+  kyc: {
+    reason: "amount_80" | "deadline_7d" | "blocked" | (string & {});
+    collectedXof: number;
+    thresholdXof: number;
+    deadline: string | null;
+    blocked: boolean;
+    consoleUrl: string;
+  };
+}
+
 /** Un type d'événement que cette version du package ne connaît pas encore. */
 export interface OtherEvent {
   id: string;
@@ -378,6 +445,7 @@ export type TechnasPayEvent =
   | BalanceConvertedEvent
   | FxModeEvent
   | CardAccountEvent
+  | KycRequiredEvent
   | OtherEvent;
 
 export interface WebhookHandlers {
@@ -404,6 +472,11 @@ export interface WebhookHandlers {
   onFxModeUpdated?: (event: FxModeEvent) => void | Promise<void>;
   /** Votre compte carte a changé d'état (ouvert, à compléter, suspendu…). */
   onCardAccountUpdated?: (event: CardAccountEvent) => void | Promise<void>;
+  /**
+   * Seuil d'identité proche ou atteint (`account.kyc_required`) : prévenez le RESPONSABLE du
+   * compte qu'il dépose sa pièce sur `event.kyc.consoleUrl`.
+   */
+  onKycRequired?: (event: KycRequiredEvent) => void | Promise<void>;
 }
 
 export interface TechnasPayOptions {
@@ -466,6 +539,10 @@ export class TechnasPayError extends Error {
       risk?: string;
       /** `card_account_not_ready` : où en est votre compte carte (`not_started`, `onboarding`…). */
       accountStatus?: CardAccountStatus;
+      /** `kyc_required` (et `reason` : `amount` | `duration`) : où le responsable dépose sa pièce. */
+      consoleUrl?: string;
+      /** `contract_required` : la version du contrat à accepter dans la console. */
+      version?: string;
     } = {},
   ) {
     super(message);
@@ -549,6 +626,26 @@ function parseCardAccount(raw: any): CardAccount {
   };
 }
 
+function parseAccountKyc(raw: any): AccountKyc {
+  return {
+    applies: Boolean(raw.applies),
+    stage: raw.stage,
+    level: raw.level,
+    daysElapsed: raw.days_elapsed ?? null,
+    warnFromXof: raw.warn_from_xof,
+    warnFromDate: raw.warn_from_date ?? null,
+    collectedXof: raw.collected_xof,
+    thresholdXof: raw.threshold_xof,
+    graceDays: raw.grace_days,
+    firstCollectedAt: raw.first_collected_at ?? null,
+    deadline: raw.deadline ?? null,
+    waiverUntil: raw.waiver_until ?? null,
+    blocked: Boolean(raw.blocked),
+    reason: raw.reason ?? null,
+    consoleUrl: raw.console_url,
+  };
+}
+
 function parsePayment(raw: any): Payment {
   return {
     id: raw.id,
@@ -617,6 +714,19 @@ function parseEvent(raw: any): TechnasPayEvent {
   }
   if (raw.type === "card_account.updated") {
     return { id: raw.id, type: raw.type, createdAt: raw.created_at, account: parseCardAccount(d) };
+  }
+  if (raw.type === "account.kyc_required") {
+    return {
+      id: raw.id, type: raw.type, createdAt: raw.created_at,
+      kyc: {
+        reason: d.reason,
+        collectedXof: d.collected_xof,
+        thresholdXof: d.threshold_xof,
+        deadline: d.deadline ?? null,
+        blocked: Boolean(d.blocked),
+        consoleUrl: d.console_url,
+      },
+    };
   }
   if (raw.type === "balance.topped_up") {
     return {
@@ -853,6 +963,7 @@ async function dispatch(event: TechnasPayEvent, handlers: WebhookHandlers): Prom
   else if (event.type === "balance.converted") await handlers.onBalanceConverted?.(event as BalanceConvertedEvent);
   else if (event.type === "fx_mode.updated") await handlers.onFxModeUpdated?.(event as FxModeEvent);
   else if (event.type === "card_account.updated") await handlers.onCardAccountUpdated?.(event as CardAccountEvent);
+  else if (event.type === "account.kyc_required") await handlers.onKycRequired?.(event as KycRequiredEvent);
   // Un type inconnu est acquitté : il ne doit pas être relivré pendant trois jours.
 }
 
@@ -905,6 +1016,8 @@ export function createTechnasPay(options: TechnasPayOptions) {
           ...(data?.reason !== undefined ? { reason: data.reason } : {}),
           ...(data?.risk !== undefined ? { risk: data.risk } : {}),
           ...(data?.account_status !== undefined ? { accountStatus: data.account_status } : {}),
+          ...(data?.console_url !== undefined ? { consoleUrl: data.console_url } : {}),
+          ...(data?.version !== undefined ? { version: data.version } : {}),
         },
       );
     }
@@ -1139,6 +1252,15 @@ export function createTechnasPay(options: TechnasPayOptions) {
     async getCardDashboardLink(): Promise<{ url: string }> {
       const raw = await call<any>("POST", "/v1/card/dashboard-link", {});
       return { url: raw.url };
+    },
+
+    /**
+     * Le seuil d'identité du compte : où il en est (`stage`), le cumul encaissé, le seuil et
+     * l'échéance, et `consoleUrl` où le responsable dépose sa pièce. À montrer au MARCHAND, jamais
+     * au client final.
+     */
+    async getAccountKyc(): Promise<AccountKyc> {
+      return parseAccountKyc(await call<any>("GET", "/v1/account/kyc"));
     },
 
     /** Ce que Technas vous doit, par devise. */

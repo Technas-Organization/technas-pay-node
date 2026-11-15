@@ -10,6 +10,8 @@ Une référence = un essai : `retryReference(orderId, attempt)`. Relancez avec u
 
 Carte bancaire : `method: "card"` + `currency`, seulement quand `getCardAccount().canAcceptPayments` est vrai (compte carte ouvert une fois avec `startCardOnboarding`). L'argent va directement sur le compte carte de l'utilisateur, pas sur le solde Technas. Pour une app : `appRoutes({ card: true, authorizeAdmin })`.
 
+Seuil d'identité : en réel, sans pièce vérifiée, les nouveaux paiements mobile money sont refusés (`kyc_required`, 409, jamais à réessayer) au-delà du seuil lu par `getAccountKyc()` (`thresholdXof`, `graceDays`) ; avis `account.kyc_required` → `onKycRequired`. La carte n'est pas concernée.
+
 Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-même après avoir lu le risque (`getFxMode().risks.local`, puis `setFxMode({ mode: "local", acceptRisk: true })`). `converted` n'est pas ouvert (`fx_mode_unavailable`).
 
 - [AGENTS.md](AGENTS.md) : règles pour un agent de code
