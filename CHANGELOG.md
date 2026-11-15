@@ -1,11 +1,16 @@
 # Changelog
 
+## 0.11.1 — 2026-11-15
+
+- Remboursement par carte : `kind: "card"` (type `RefundKind = "payout" | "external" | "card"`). Un `"stripe"` encore renvoyé par l'API pendant la transition est lu comme `"card"` (`normalizeRefundKind`).
+- Documentation : le prestataire carte n'est plus nommé que dans l'étape d'inscription ; tarif rappelé : carte 1 % (plus les frais de votre compte carte), mobile money 2 % (frais de l'opérateur payés par le client).
+
 ## 0.11.0 — 2026-11-15
 
 Paiement par carte, repris de technas-pay-next#2 (qu'il remplace) :
 - `askForPayment({ method: "card", currency })`, avec des décimales autorisées par carte ;
-- `startCardOnboarding`, `getCardAccount`, `getCardDashboardLink` (https://dashboard.stripe.com/, identifiants Stripe du responsable) ;
-- `card_account_not_ready` (`details.accountStatus`), `onCardAccountUpdated`, remboursement `kind: "stripe"`, `Payment.method`.
+- `startCardOnboarding`, `getCardAccount`, `getCardDashboardLink` (tableau de bord du compte carte, identifiants du responsable) ;
+- `card_account_not_ready` (`details.accountStatus`), `onCardAccountUpdated`, remboursement par carte (`kind`), `Payment.method`.
 
 Routes de l'app : option `card` (`/methods` ouvre la carte si le compte est prêt), `POST /payments {method: "card"}` (références `orderId-card-N`), routes du marchand `GET /card/account` et `POST /card/onboarding` derrière `authorizeAdmin`. `toAppJson` porte `method`. Contrat v1 : 23 cas.
 
