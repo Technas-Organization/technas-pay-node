@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0 — 2026-11-16
+
+Annuler un paiement :
+- `pay.cancelPayment(id)` (`POST /v1/payments/{id}/cancel`) : annule DÉFINITIVEMENT un paiement que personne n'a commencé à payer (le client change d'offre). Rendu `expired`, `checkoutUrl` null ; rejouer rend le même résultat. Refus (409) : `payment_already_completed` (payé : relisez, ne créez rien, jamais à réessayer) et `payment_in_progress` (demande en cours chez l'opérateur : aucun second paiement, réessayable). L'identifiant est vérifié avant tout appel, comme pour `getPayment` ;
+- `Payment` : `canceledAt`, `cancelReason` (`canceled_by_partner`) et `reason` ; avis `payment.expired` : `event.payment.reason` (`canceled` ou `timeout`, `null` dans un avis ancien) et `canceledAt`. Tous facultatifs ;
+- routes toutes faites : `POST /payments/{id}/cancel` (mêmes contrôles que `GET /payments/{id}`), et sur `reference_conflict` l'ancien essai est relu par sa référence puis annulé s'il est encore ouvert avant le suivant ; payé ou demande en cours : erreur rendue à l'app, aucun second paiement ; une annulation qui répond 404 (serveur qui ne l'a pas encore) laisse passer à l'essai suivant, comme avant. Contrat v1 : 31 cas ;
+- documentation : autre offre → annuler l'ancien essai, puis nouvel essai avec une nouvelle référence.
+
 ## 0.13.0 — 2026-11-15
 
 Le client change d'offre ou revient plus tard :

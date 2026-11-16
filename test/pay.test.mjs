@@ -724,3 +724,67 @@ test("le client change d'offre après expiration : nouvel essai, jamais l'ancien
     { reference: "F-1", amount: 7500 },
   ]);
 });
+
+test("cancelPayment : POST /v1/payments/{id}/cancel, paiement expiré lu, rejouable ; les deux 409", async () => {
+  const calls = [];
+  const annule = { id: "pay_1", reference: "F-1", amount: 5000, currency: "XOF", commission: 100, net_amount: 4900,
+    status: "expired", checkout_url: null, metadata: {}, test_mode: true, created_at: "x",
+    canceled_at: "2026-11-16T09:00:00Z", cancel_reason: "canceled_by_partner" };
+  const reponses = [
+    () => Response.json(annule),
+    () => Response.json(annule),
+    () => Response.json({ code: "payment_in_progress", message: "m" }, { status: 409 }),
+    () => Response.json({ code: "payment_already_completed", message: "m" }, { status: 409 }),
+  ];
+  const pay = createTechnasPay({
+    secret: SECRET,
+    baseUrl: "https://gw.test",
+    fetch: async (url, init) => {
+      calls.push({ url, method: init.method, body: init.body });
+      return reponses.shift()();
+    },
+  });
+  const p = await pay.cancelPayment("pay_1");
+  assert.equal(calls[0].url, "https://gw.test/v1/payments/pay_1/cancel");
+  assert.equal(calls[0].method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].body), {});
+  assert.deepEqual([p.status, p.checkoutUrl, p.canceledAt, p.cancelReason, canRetry(p)],
+    ["expired", null, "2026-11-16T09:00:00Z", "canceled_by_partner", true]);
+  assert.equal((await pay.cancelPayment("pay_1")).canceledAt, "2026-11-16T09:00:00Z", "rejouer rend le même résultat");
+  await assert.rejects(pay.cancelPayment("pay_1"), (e) => e.code === "payment_in_progress" && e.status === 409 && e.retryable === true);
+  await assert.rejects(pay.cancelPayment("pay_1"), (e) => e.code === "payment_already_completed" && e.status === 409 && e.retryable === false);
+  assert.equal(calls.length, 4);
+});
+
+test("cancelPayment et getPayment : un identifiant invalide est refusé sans appel", async () => {
+  const pay = createTechnasPay({ secret: SECRET, fetch: () => assert.fail("aucun appel attendu") });
+  for (const id of ["../balance", "pay_1/cancel", "", "pay 1", "a".repeat(129)]) {
+    await assert.rejects(pay.cancelPayment(id), (e) => e instanceof TechnasPayError && e.code === "invalid_request", id);
+    await assert.rejects(pay.getPayment(id), (e) => e instanceof TechnasPayError && e.code === "invalid_request", id);
+  }
+});
+
+test("un paiement sans annulation : canceledAt, cancelReason et reason à null", async () => {
+  const pay = createTechnasPay({
+    secret: SECRET,
+    fetch: async () => Response.json({ id: "p", reference: "r", amount: 300, currency: "XOF", commission: 6,
+      net_amount: 294, status: "pending", checkout_url: "https://c.test", metadata: {}, test_mode: true, created_at: "a" }),
+  });
+  const p = await pay.getPayment("p");
+  assert.deepEqual([p.canceledAt, p.cancelReason, p.reason], [null, null, null]);
+});
+
+test("avis payment.expired : reason canceled (avec canceledAt), timeout, ou absent", async () => {
+  const pay = createTechnasPay({ secret: SECRET });
+  const vus = [];
+  const handler = pay.webhookHandler({ onExpired: (e) => vus.push([e.payment.reason, e.payment.canceledAt]) });
+  const avis = (extra) => JSON.stringify({
+    id: "evt_x", type: "payment.expired", created_at: "2026-11-16T09:00:00Z",
+    data: { id: "pay_x", reference: "F-1", status: "expired", amount: 300, currency: "XOF", commission: 6,
+            net_amount: 294, metadata: {}, ...extra },
+  });
+  for (const body of [avis({ reason: "canceled", canceled_at: "2026-11-16T09:00:00Z" }), avis({ reason: "timeout" }), avis({})]) {
+    assert.equal((await handler(request(body, sign(body)))).status, 200);
+  }
+  assert.deepEqual(vus, [["canceled", "2026-11-16T09:00:00Z"], ["timeout", null], [null, null]]);
+});
