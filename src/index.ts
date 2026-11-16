@@ -140,6 +140,12 @@ export interface Payment {
   expiresAt: string | null;
   /** Posé avec le statut `expired`. */
   expiredAt: string | null;
+  /** Annulé par vous (`cancelPayment`) : quand. `null` sinon. */
+  canceledAt: string | null;
+  /** `canceled_by_partner` quand vous l'avez annulé. `null` sinon. */
+  cancelReason: string | null;
+  /** Avis `payment.expired` : `canceled` (annulé) ou `timeout` (lien expiré). `null` si absent (avis ancien). */
+  reason: string | null;
 }
 
 /**
@@ -197,6 +203,11 @@ export interface PaymentEvent {
     fx: PaymentFx | null;
     expiresAt: string | null;
     expiredAt: string | null;
+    /** `payment.expired` : `canceled` (vous l'avez annulé, `cancelPayment`) ou `timeout`. `null` dans un avis ancien. */
+    reason: string | null;
+    /** `payment.expired` après une annulation : quand. `null` sinon. */
+    canceledAt: string | null;
+    cancelReason: string | null;
   };
 }
 
@@ -539,7 +550,10 @@ export class TechnasPayError extends Error {
      * `payment_expired` : la référence passée à `askForPayment` est celle d'un essai expiré ; créez
      * un nouveau paiement avec une NOUVELLE référence (ne réessayez pas le même appel).
      * `reference_conflict` : la référence est celle d'un essai d'un autre montant (le client a
-     * changé d'offre) ; même remède : nouvel essai, `retryReference(orderId, n + 1)`.
+     * changé d'offre) ; annulez l'ancien essai (`cancelPayment`), puis nouvel essai,
+     * `retryReference(orderId, n + 1)`.
+     * `payment_already_completed` (`cancelPayment`) : il est payé ; relisez-le, ne créez rien.
+     * `payment_in_progress` : une demande est en cours chez l'opérateur ; réessayable plus tard.
      * Précisions selon le code : `missingAmount` et `currency` pour `insufficient_balance`
      * (rechargez au moins ce montant avec `topUpBalance`), `refundableAmount` pour
      * `refund_exceeds_payment`.
@@ -568,6 +582,16 @@ export class TechnasPayError extends Error {
   get retryable(): boolean {
     return this.code === "network_error" || this.status === 429 || this.status >= 500 || this.code === "payment_in_progress";
   }
+}
+
+const PAYMENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** Un identifiant de paiement dans une adresse : refusé avant tout appel s'il n'en a pas la forme. */
+function paymentSegment(id: string): string {
+  if (typeof id !== "string" || !PAYMENT_ID.test(id)) {
+    throw new TechnasPayError("invalid_request", "Identifiant de paiement invalide", 0);
+  }
+  return id;
 }
 
 export class WebhookVerificationError extends Error {
@@ -682,6 +706,9 @@ function parsePayment(raw: any): Payment {
     completedAt: raw.completed_at ?? null,
     expiresAt: raw.expires_at ?? null,
     expiredAt: raw.expired_at ?? null,
+    canceledAt: raw.canceled_at ?? null,
+    cancelReason: raw.cancel_reason ?? null,
+    reason: raw.reason ?? null,
   };
 }
 
@@ -779,6 +806,9 @@ function parseEvent(raw: any): TechnasPayEvent {
       fx: parseFx(d.fx),
       expiresAt: d.expires_at ?? null,
       expiredAt: d.expired_at ?? null,
+      reason: d.reason ?? null,
+      canceledAt: d.canceled_at ?? null,
+      cancelReason: d.cancel_reason ?? null,
     },
   };
 }
@@ -1099,7 +1129,18 @@ export function createTechnasPay(options: TechnasPayOptions) {
     },
 
     async getPayment(id: string): Promise<Payment> {
-      return parsePayment(await call<any>("GET", `/v1/payments/${encodeURIComponent(id)}`));
+      return parsePayment(await call<any>("GET", `/v1/payments/${paymentSegment(id)}`));
+    },
+
+    /**
+     * Annule DÉFINITIVEMENT un paiement que personne n'a commencé à payer (le client change
+     * d'offre) : rendu `expired`, sans lien (`checkoutUrl` null), avec `canceledAt`. Rejouer rend
+     * le même résultat. Erreurs (409) : `payment_already_completed` (il est payé : relisez-le, ne
+     * créez rien) et `payment_in_progress` (une demande est en cours chez l'opérateur : ne créez
+     * PAS de second paiement, réessayez plus tard ou attendez l'avis de l'issue).
+     */
+    async cancelPayment(id: string): Promise<Payment> {
+      return parsePayment(await call<any>("POST", `/v1/payments/${paymentSegment(id)}/cancel`, {}));
     },
 
     /** Pour rattraper un webhook manqué. */

@@ -19,7 +19,8 @@ function payFor(gateway) {
     secret: SECRET,
     baseUrl: "https://gw.test",
     fetch: async (url, init) => {
-      calls.push({ method: init.method, path: new URL(url).pathname, body: init.body ? JSON.parse(init.body) : undefined });
+      const u = new URL(url);
+      calls.push({ method: init.method, path: u.pathname, query: Object.fromEntries(u.searchParams), body: init.body ? JSON.parse(init.body) : undefined });
       const next = queue.shift();
       if (!next) throw new Error("appel imprévu à la passerelle");
       return next.body === null ? new Response("<html>panne</html>", { status: next.status }) : Response.json(next.body, { status: next.status });
@@ -48,6 +49,8 @@ function sansMessage(body) {
   return body;
 }
 
+test("le contrat compte 31 cas", () => assert.equal(contract.cases.length, 31));
+
 for (const c of contract.cases) {
   test(`contrat : ${c.name}`, async () => {
     const { pay, calls } = payFor(c.gateway);
@@ -65,6 +68,7 @@ for (const c of contract.cases) {
       assert.equal(calls[i].method, e.method);
       assert.equal(calls[i].path, e.path);
       for (const [k, v] of Object.entries(e.body_includes ?? {})) assert.deepEqual(calls[i].body[k], v, k);
+      for (const [k, v] of Object.entries(e.query_includes ?? {})) assert.equal(calls[i].query[k], v, `?${k}`);
     });
     if (r.status >= 400) assert.equal(typeof r.body.message, "string");
   });
@@ -134,4 +138,48 @@ test("exemple Express : les routes montées sous /api/technas-pay", async () => 
   } finally {
     server.close();
   }
+});
+
+test("annuler : POST /payments/{id}/cancel servi par les adaptateurs fetch (Next) et node (Express)", async () => {
+  const c = contract.cases.find((x) => x.request.method === "POST" && x.request.path === "/payments/pay_1/cancel" && x.expect.status === 200);
+  // fetch / Next : POST est exporté par nextHandlers.
+  {
+    const { pay, calls } = payFor(c.gateway);
+    const { POST } = routesFor(c, pay).nextHandlers("/api/technas-pay");
+    const res = await POST(new Request("https://app.test/api/technas-pay/payments/pay_1/cancel", { method: "POST" }));
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), c.expect.body);
+    assert.deepEqual(calls.map((x) => `${x.method} ${x.path}`), ["GET /v1/payments/pay_1", "POST /v1/payments/pay_1/cancel"]);
+  }
+  // Express, monté avant et après express.json() (corps vide ou {}).
+  const express = (await import("express")).default;
+  for (const body of [undefined, "{}"]) {
+    const { pay, calls } = payFor(c.gateway);
+    const app = express();
+    app.use(express.json());
+    app.use("/api/technas-pay", routesFor(c, pay).node);
+    const server = app.listen(0);
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/api/technas-pay/payments/pay_1/cancel`, {
+        method: "POST",
+        ...(body ? { body, headers: { "content-type": "application/json" } } : {}),
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual(await res.json(), c.expect.body);
+      assert.equal(calls.length, 2);
+    } finally {
+      server.close();
+    }
+  }
+});
+
+test("annuler : un identifiant invalide → 404 payment_not_found, sans appel à la passerelle", async () => {
+  const c = { user: "u1", orders: {} };
+  const { pay, calls } = payFor([]);
+  for (const path of ["/payments/..%2Fbalance/cancel", "/payments/pay%201/cancel", "/payments/%E0%A4%A/cancel"]) {
+    const r = await routesFor(c, pay).handle({ method: "POST", path, query: {}, headers: {}, rawBody: "" });
+    assert.equal(r.status, 404, path);
+    assert.equal(r.body.code, "payment_not_found");
+  }
+  assert.equal(calls.length, 0);
 });

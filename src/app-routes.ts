@@ -79,6 +79,8 @@ interface PayLike {
   getCardAccount(): Promise<CardAccount>;
   startCardOnboarding(input: any): Promise<{ url: string; kind: string; expiresAt: string | null; account: CardAccount }>;
   getPayment(id: string): Promise<Payment>;
+  getPaymentByReference(reference: string): Promise<Payment>;
+  cancelPayment(id: string): Promise<Payment>;
   handleWebhook(raw: string | Uint8Array, signature: string | null | undefined, handlers: WebhookHandlers): Promise<{ status: number; body: unknown; event?: TechnasPayEvent }>;
 }
 
@@ -101,6 +103,9 @@ function queryOf(url: URL): Record<string, string> {
   return q;
 }
 
+/** La forme d'un identifiant de paiement : tout autre chemin est refusé sans appel. */
+const PAYMENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
 /** `42-3` ou `42-card-3` → `42` (la commande d'un essai). */
 function orderIdOf(reference: string): string {
   const m = /^(.+?)-(?:card-)?\d+$/.exec(reference);
@@ -122,15 +127,17 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
   const maxAttempts = options.maxAttempts ?? 20;
 
   async function startPayment(orderId: string, order: AppOrder, method: "mobile_money" | "card"): Promise<Payment> {
-    // Une référence = un essai : `orderId-1`, puis `-2`… Un essai expiré lève payment_expired,
-    // un essai d'un autre montant (le client a changé d'offre) lève reference_conflict : on passe
-    // au suivant, jamais un refus. Un essai en cours (ou payé) du même montant est rendu tel quel.
+    // Une référence = un essai : `orderId-1`, puis `-2`… Un essai expiré lève payment_expired : on
+    // passe au suivant. Un essai d'un autre montant (le client a changé d'offre) lève
+    // reference_conflict : l'ancien essai est annulé s'il est encore ouvert, puis le suivant est
+    // créé. Un essai en cours (ou payé) du même montant est rendu tel quel : jamais deux paiements.
     for (let attempt = 1; ; attempt++) {
+      // La carte a ses propres essais : un essai mobile money en cours n'est jamais heurté.
+      const reference = method === "card" ? `${orderId}-card-${attempt}` : retryReference(orderId, attempt);
       try {
         return await pay.askForPayment({
           amount: order.amount,
-          // La carte a ses propres essais : un essai mobile money en cours n'est jamais heurté.
-          reference: method === "card" ? `${orderId}-card-${attempt}` : retryReference(orderId, attempt),
+          reference,
           ...(method === "card" ? { method } : {}),
           customer: order.customer,
           returnUrl: order.returnUrl ?? options.returnUrl,
@@ -139,13 +146,35 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
           metadata: { ...(order.metadata ?? {}), order_id: orderId },
         });
       } catch (e) {
-        if (
-          e instanceof TechnasPayError &&
-          (e.code === "payment_expired" || e.code === "reference_conflict") &&
-          attempt < maxAttempts
-        ) continue;
-        throw e;
+        if (!(e instanceof TechnasPayError) || attempt >= maxAttempts) throw e;
+        if (e.code === "payment_expired") continue;
+        if (e.code !== "reference_conflict") throw e;
+        // Payé, ou demande en cours chez l'opérateur : aucun second paiement, l'erreur remonte.
+        await closePrevious(reference);
       }
+    }
+  }
+
+  /** L'essai d'un autre montant : annulé s'il est encore ouvert ; payé → payment_already_completed. */
+  async function closePrevious(reference: string): Promise<void> {
+    let previous: Payment;
+    try {
+      previous = await pay.getPaymentByReference(reference);
+    } catch (e) {
+      if (e instanceof TechnasPayError && e.code === "payment_not_found") return;
+      throw e;
+    }
+    if (previous.status === "completed") {
+      throw new TechnasPayError("payment_already_completed", "L'essai précédent de cette commande est déjà payé", 409);
+    }
+    if (previous.status === "expired") return;
+    try {
+      await pay.cancelPayment(previous.id);
+    } catch (e) {
+      // 404 (paiement introuvable, ou serveur qui n'a pas encore l'annulation) : essai suivant,
+      // comme avant l'annulation. Payé ou demande en cours : l'erreur remonte, aucun second paiement.
+      if (e instanceof TechnasPayError && e.status === 404) return;
+      throw e;
     }
   }
 
@@ -199,7 +228,9 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
       }
     }
 
-    const known = (method === "GET" && (path === "/methods" || /^\/payments\/[^/]+$/.test(path))) || (method === "POST" && path === "/payments");
+    const isPayment = /^\/payments\/[^/]+$/.test(path);
+    const isCancel = /^\/payments\/[^/]+\/cancel$/.test(path);
+    const known = (method === "GET" && (path === "/methods" || isPayment)) || (method === "POST" && (path === "/payments" || isCancel));
     if (!known) return err(404, "not_found", "Route inconnue");
 
     const user = await options.authorize(req);
@@ -240,8 +271,15 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
         return { status: 200, body: { payment: toAppJson(await startPayment(orderId, order, method)) } };
       }
 
-      // GET /payments/{id} : seulement si la commande de ce paiement est à cet utilisateur.
-      const id = decodeURIComponent(path.slice("/payments/".length));
+      // GET /payments/{id} et POST /payments/{id}/cancel : seulement si la commande de ce paiement
+      // est à cet utilisateur.
+      let id: string;
+      try {
+        id = decodeURIComponent(path.split("/")[2]!);
+      } catch {
+        return err(404, "payment_not_found", "Paiement introuvable");
+      }
+      if (!PAYMENT_ID.test(id)) return err(404, "payment_not_found", "Paiement introuvable");
       let payment: Payment;
       try {
         payment = await pay.getPayment(id);
@@ -251,6 +289,8 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
       }
       const order = await options.resolveOrder(orderIdOf(payment.reference), user);
       if (!order) return err(404, "payment_not_found", "Paiement introuvable");
+      // Le client change d'offre : l'essai affiché est annulé avant d'en démarrer un autre.
+      if (isCancel) payment = await pay.cancelPayment(payment.id);
       return { status: 200, body: { payment: toAppJson(payment) } };
     } catch (e) {
       if (e instanceof TechnasPayError) return fromPayError(e);
