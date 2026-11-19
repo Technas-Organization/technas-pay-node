@@ -331,6 +331,31 @@ export interface TopUpEvent {
   topUp: { id: string; amount: number; currency: string; completedAt: string | null };
 }
 
+/** Un reversement de votre solde vers votre numéro mobile money. */
+export interface SettlementInfo {
+  id: string;
+  /** Ce qui a quitté votre solde. */
+  amount: number;
+  /** Frais du versement mobile money, à votre charge. */
+  fee: number;
+  /** Ce qui arrive sur votre numéro (`amount` moins `fee`). */
+  netAmount: number;
+  currency: string;
+  status: "completed" | "failed" | (string & {});
+  createdAt: string | null;
+}
+
+export interface SettlementEvent {
+  id: string;
+  /**
+   * `settlement.completed` : l'argent est arrivé sur votre numéro.
+   * `settlement.failed` : le versement a échoué, `amount` est revenu sur votre solde.
+   */
+  type: "settlement.completed" | "settlement.failed";
+  createdAt: string;
+  settlement: SettlementInfo;
+}
+
 /**
  * Où en est votre compte de paiement par carte.
  * - `not_started` : jamais ouvert, appelez `startCardOnboarding`.
@@ -466,6 +491,7 @@ export type TechnasPayEvent =
   | PayoutDestinationEvent
   | RefundEvent
   | TopUpEvent
+  | SettlementEvent
   | BalanceConvertedEvent
   | FxModeEvent
   | CardAccountEvent
@@ -490,6 +516,8 @@ export interface WebhookHandlers {
   onRefund?: (event: RefundEvent) => void | Promise<void>;
   /** Recharge de solde payée. */
   onTopUp?: (event: TopUpEvent) => void | Promise<void>;
+  /** Reversement arrivé sur votre numéro (`settlement.completed`) ou échoué (`settlement.failed`, solde recrédité). */
+  onSettlement?: (event: SettlementEvent) => void | Promise<void>;
   /** Mode `converted` : une partie de votre solde a été changée en F CFA, au cours et au coût réels. */
   onBalanceConverted?: (event: BalanceConvertedEvent) => void | Promise<void>;
   /** Votre option hors zone CFA a changé. Si ce n'est pas vous, prévenez Technas. */
@@ -783,6 +811,22 @@ function parseEvent(raw: any): TechnasPayEvent {
       topUp: { id: d.id, amount: d.amount, currency: d.currency, completedAt: d.completed_at ?? null },
     };
   }
+  if (raw.type === "settlement.completed" || raw.type === "settlement.failed") {
+    return {
+      id: raw.id,
+      type: raw.type,
+      createdAt: raw.created_at,
+      settlement: {
+        id: d.id,
+        amount: d.amount,
+        fee: d.fee ?? 0,
+        netAmount: d.net_amount ?? d.amount - (d.fee ?? 0),
+        currency: d.currency,
+        status: d.status,
+        createdAt: d.created_at ?? null,
+      },
+    };
+  }
   if (raw.type !== "payment.completed" && raw.type !== "payment.failed" && raw.type !== "payment.expired") {
     return { id: raw.id, type: raw.type, createdAt: raw.created_at, data: d };
   }
@@ -1010,6 +1054,7 @@ async function dispatch(event: TechnasPayEvent, handlers: WebhookHandlers): Prom
   else if (event.type.startsWith("payout_destination.")) await handlers.onPayoutDestination?.(event as PayoutDestinationEvent);
   else if (event.type.startsWith("refund.")) await handlers.onRefund?.(event as RefundEvent);
   else if (event.type === "balance.topped_up") await handlers.onTopUp?.(event as TopUpEvent);
+  else if (event.type.startsWith("settlement.")) await handlers.onSettlement?.(event as SettlementEvent);
   else if (event.type === "balance.converted") await handlers.onBalanceConverted?.(event as BalanceConvertedEvent);
   else if (event.type === "fx_mode.updated") await handlers.onFxModeUpdated?.(event as FxModeEvent);
   else if (event.type === "card_account.updated") await handlers.onCardAccountUpdated?.(event as CardAccountEvent);

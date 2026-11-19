@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0 — 2026-11-19
+
+Suivre ses reversements :
+- avis `settlement.completed` et `settlement.failed` → `onSettlement(event)`, contenu typé `event.settlement` (`SettlementInfo`) : `amount` (ce qui a quitté le solde), `fee` (frais du versement mobile money), `netAmount` (ce qui arrive sur le numéro), `currency`, `status`, `createdAt`. Sur `settlement.failed`, `amount` est revenu sur le solde ;
+- une version plus ancienne recevait déjà ces avis sous leur forme générique (`event.data`) : rien ne casse.
+
 ## 0.14.0 — 2026-11-16
 
 Annuler un paiement :

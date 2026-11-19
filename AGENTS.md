@@ -23,6 +23,7 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 | Noter un remboursement fait hors Technas (Flooz, T-Money, espèces) | `pay.recordExternalRefund(paymentId, { amount, method, note?, recordedBy? })` |
 | Savoir que le remboursement est arrivé | webhook `onRefund` (`refund.completed`, `refund.failed` ou `refund.recorded`) |
 | Recharger le solde pour rembourser | `pay.topUpBalance({ amount, currency })`, puis ouvrir `checkoutUrl` ; webhook `onTopUp` |
+| Suivre un reversement vers votre numéro | webhook `onSettlement` : `settlement.completed` (arrivé, `event.settlement.netAmount`) ou `settlement.failed` (solde recrédité) |
 | Afficher le solde | `pay.getBalance()` |
 | Savoir quels pays hors zone CFA sont ouverts, et les risques | `pay.getFxMode()` |
 | Activer une option hors zone CFA (après accord explicite de l'utilisateur) | `pay.setFxMode({ mode, acceptRisk: true, markupPct? })` |
@@ -40,7 +41,7 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 
 ## Étapes
 
-1. `npm install github:Technas-Organization/technas-pay-node#v0.14.0`
+1. `npm install github:Technas-Organization/technas-pay-node#v0.15.0`
 2. Créez `lib/pay.js` (ou `.ts`) :
    ```js
    import { createTechnasPay } from "@technas/pay";
@@ -49,7 +50,7 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
    ```
 3. Dans la route « payer » : relisez la commande en base, appelez `pay.askForPayment(...)` avec `reference: retryReference(orderId, attempt)`, gardez `payment.id`, puis redirigez vers `checkoutUrl`.
 4. Route webhook `POST /api/technas-pay`, avec le **corps brut** :
-   - **Express** : `app.post("/api/technas-pay", express.raw({ type: "application/json" }), pay.nodeHandler({ onCompleted, onFailed, onExpired, onRefund, onTopUp }))`, déclarée AVANT `app.use(express.json())`.
+   - **Express** : `app.post("/api/technas-pay", express.raw({ type: "application/json" }), pay.nodeHandler({ onCompleted, onFailed, onExpired, onRefund, onTopUp, onSettlement }))`, déclarée AVANT `app.use(express.json())`.
    - **NestJS** : `NestFactory.create(AppModule, { rawBody: true })`, puis dans le contrôleur `@Post() hook(@Req() req, @Res() res) { return handler(req, res); }` avec `const handler = pay.nodeHandler({...})`.
    - **Fastify** : dans un `register` dédié, `addContentTypeParser("application/json", { parseAs: "string" }, (_r, b, done) => done(null, b))`, puis `const r = await pay.handleWebhook(request.body, request.headers["x-technas-payment-signature"], handlers); reply.code(r.status).send(r.body)`.
    - **Hono, Bun, Deno, Remix** (norme fetch) : `pay.webhookHandler(handlers)` prend une `Request` et rend une `Response`.

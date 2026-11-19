@@ -318,6 +318,24 @@ test("les webhooks refund.* et balance.topped_up arrivent dans onRefund et onTop
   assert.equal(recus[1].topUp.amount, 1000);
 });
 
+test("les webhooks settlement.* arrivent dans onSettlement, avec ce qui part, les frais et le net", async () => {
+  const pay = createTechnasPay({ secret: SECRET });
+  const recus = [];
+  const handler = pay.webhookHandler({ onSettlement: (e) => recus.push(e), onCompleted: () => assert.fail() });
+  for (const status of ["completed", "failed"]) {
+    const body = JSON.stringify({
+      id: `e-${status}`, type: `settlement.${status}`, created_at: "x",
+      data: { id: "s1", amount: 392, fee: 61, net_amount: 331, currency: "XOF", status, created_at: "y" },
+    });
+    assert.equal((await handler(request(body, sign(body)))).status, 200);
+  }
+  assert.deepEqual(recus.map((e) => e.type), ["settlement.completed", "settlement.failed"]);
+  assert.deepEqual(recus[0].settlement, {
+    id: "s1", amount: 392, fee: 61, netAmount: 331, currency: "XOF", status: "completed", createdAt: "y",
+  });
+  assert.equal(recus[1].settlement.status, "failed");
+});
+
 test("recordExternalRefund enregistre sans argent, et arrive dans onRefund", async () => {
   const seen = [];
   const pay = createTechnasPay({

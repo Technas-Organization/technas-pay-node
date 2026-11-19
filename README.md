@@ -13,7 +13,7 @@ Autres langages : [Python](https://github.com/Technas-Organization/technas-pay-p
 ## 1. Installer
 
 ```bash
-npm install github:Technas-Organization/technas-pay-node#v0.14.0
+npm install github:Technas-Organization/technas-pay-node#v0.15.0
 ```
 
 Le paquet se compile à l'installation, s'importe sous le nom `@technas/pay`, et n'a aucune dépendance. Node.js 18.17 ou plus récent.
@@ -256,7 +256,7 @@ app.post("/api/technas-pay", (c) => pay.webhookHandler({ onCompleted })(c.req.ra
 
 Exemples complets, testés : [Express](examples/express.mjs), [Fastify](examples/fastify.mjs).
 
-Fonctions disponibles : `onCompleted`, `onFailed` (pas définitif), `onExpired` (définitif), `onRefund`, `onTopUp`, `onPayoutDestination`, `onBalanceConverted`, `onFxModeUpdated`, `onCardAccountUpdated`, `onKycRequired` (seuil d'identité, voir plus bas). Signature refusée : réponse 400, aucune fonction appelée. Une erreur dans votre fonction remonte (500, ou `next(error)` sous Express) : Technas relivrera. Un type inconnu est acquitté.
+Fonctions disponibles : `onCompleted`, `onFailed` (pas définitif), `onExpired` (définitif), `onRefund`, `onTopUp`, `onSettlement` (reversement arrivé ou échoué), `onPayoutDestination`, `onBalanceConverted`, `onFxModeUpdated`, `onCardAccountUpdated`, `onKycRequired` (seuil d'identité, voir plus bas). Signature refusée : réponse 400, aucune fonction appelée. Une erreur dans votre fonction remonte (500, ou `next(error)` sous Express) : Technas relivrera. Un type inconnu est acquitté.
 
 ### La règle de relance
 
@@ -434,6 +434,10 @@ app.post("/api/technas-pay", express.raw({ type: "application/json" }), pay.node
   },
   onTopUp: async (event) => {
     await noterRecharge(event.topUp.amount, event.topUp.currency);
+  },
+  onSettlement: async (event) => {
+    // completed : netAmount est arrivé sur votre numéro. failed : amount est revenu sur votre solde.
+    await noterReversement(event.type, event.settlement.netAmount, event.settlement.currency);
   },
 }));
 ```
