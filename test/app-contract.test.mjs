@@ -49,7 +49,7 @@ function sansMessage(body) {
   return body;
 }
 
-test("le contrat compte 31 cas", () => assert.equal(contract.cases.length, 31));
+test("le contrat compte 32 cas", () => assert.equal(contract.cases.length, 32));
 
 for (const c of contract.cases) {
   test(`contrat : ${c.name}`, async () => {

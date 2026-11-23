@@ -1181,7 +1181,8 @@ export function createTechnasPay(options: TechnasPayOptions) {
      * Annule DÉFINITIVEMENT un paiement que personne n'a commencé à payer (le client change
      * d'offre) : rendu `expired`, sans lien (`checkoutUrl` null), avec `canceledAt`. Rejouer rend
      * le même résultat. Erreurs (409) : `payment_already_completed` (il est payé : relisez-le, ne
-     * créez rien) et `payment_in_progress` (une demande est en cours chez l'opérateur : ne créez
+     * créez rien), `payment_failed_page_open` (échoué, rien en cours, page ouverte jusqu'à
+     * `expires_at` : créez le nouvel essai) et `payment_in_progress` (une demande est en cours chez l'opérateur : ne créez
      * PAS de second paiement, réessayez plus tard ou attendez l'avis de l'issue).
      */
     async cancelPayment(id: string): Promise<Payment> {

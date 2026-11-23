@@ -174,6 +174,10 @@ export function createAppRoutes<User>(pay: PayLike, options: AppRoutesOptions<Us
       // 404 (paiement introuvable, ou serveur qui n'a pas encore l'annulation) : essai suivant,
       // comme avant l'annulation. Payé ou demande en cours : l'erreur remonte, aucun second paiement.
       if (e instanceof TechnasPayError && e.status === 404) return;
+      // Échoué, rien en cours chez l'opérateur, mais SasPay garde sa page ouverte jusqu'à
+      // l'échéance : on ne la déclare pas close, on passe à l'essai suivant (deux pages payées =
+      // remboursement de l'essai en trop).
+      if (e instanceof TechnasPayError && e.code === "payment_failed_page_open") return;
       throw e;
     }
   }

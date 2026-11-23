@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1 — 2026-11-23
+
+Un essai échoué ne bloque plus :
+- `cancelPayment` peut répondre `payment_failed_page_open` (409, avec `expires_at`) : l'essai a échoué, rien n'est en cours chez l'opérateur, mais sa page reste ouverte jusqu'à son échéance (le fournisseur ne la ferme pas). Ne réessayez pas l'annulation : créez le nouvel essai. Avant, le serveur répondait `payment_in_progress`, qui interdit le nouvel essai, pendant une heure ;
+- routes toutes faites : sur ce code, l'essai suivant est créé (deux pages payées = remboursement de l'essai en trop). Contrat v1 : 32 cas.
+
 ## 0.15.0 — 2026-11-19
 
 Suivre ses reversements :
