@@ -93,6 +93,12 @@ export interface AskForPaymentInput {
    * (ex. `currency: "XAF", askCountry: true` → Cameroun, Congo, Gabon…).
    */
   askCountry?: boolean;
+  /**
+   * Qui paie la commission Technas : `"partner"` (retenue sur `amount`) ou `"customer"`
+   * (ajoutée au montant payé : vous recevez exactement `amount`). Absent : le réglage de
+   * votre compte. Mobile money en franc CFA seulement (`fees_customer_unavailable` sinon).
+   */
+  fees?: "partner" | "customer";
 }
 
 /** Hors zone franc CFA : le change appliqué à un paiement. */
@@ -128,6 +134,10 @@ export interface Payment {
   commission: number;
   /** Ce qui vous revient. */
   netAmount: number;
+  /** Ce que le client paie, avant les frais du réseau mobile money (= `amount` sauf frais au client). */
+  customerAmount: number;
+  /** Qui a payé la commission : `"partner"` ou `"customer"`. */
+  feesPaidBy: "partner" | "customer";
   status: PaymentStatus;
   /** `mobile_money` ou `card`. */
   method: PaymentMethod;
@@ -195,6 +205,9 @@ export interface PaymentEvent {
     currency: string;
     commission: number;
     netAmount: number;
+    /** Ce que le client paie, avant les frais du réseau (= `amount` sauf frais au client). */
+    customerAmount: number;
+    feesPaidBy: "partner" | "customer";
     metadata: Record<string, unknown>;
     completedAt: string | null;
     /** Hors zone CFA : le montant demandé en F CFA ; `amount` et `currency` sont ce qui a été payé. */
@@ -721,6 +734,8 @@ function parsePayment(raw: any): Payment {
     currency: raw.currency,
     commission: raw.commission,
     netAmount: raw.net_amount,
+    customerAmount: raw.customer_amount ?? raw.amount,
+    feesPaidBy: raw.fees_paid_by ?? "partner",
     status: raw.status,
     method: raw.method ?? "mobile_money",
     refundedAmount: raw.refunded_amount ?? 0,
@@ -843,6 +858,8 @@ function parseEvent(raw: any): TechnasPayEvent {
       currency: d.currency,
       commission: d.commission,
       netAmount: d.net_amount,
+      customerAmount: d.customer_amount ?? d.amount,
+      feesPaidBy: d.fees_paid_by ?? "partner",
       metadata: d.metadata ?? {},
       completedAt: d.completed_at ?? null,
       originalAmount: d.original_amount ?? null,
@@ -1169,6 +1186,7 @@ export function createTechnasPay(options: TechnasPayOptions) {
         ...(input.allowedCountries ? { allowed_countries: input.allowedCountries } : {}),
         ...(input.excludedCountries ? { excluded_countries: input.excludedCountries } : {}),
         ...(input.askCountry ? { ask_country: true } : {}),
+        ...(input.fees ? { fees: input.fees } : {}),
       });
       return parsePayment(raw) as Payment & { checkoutUrl: string };
     },

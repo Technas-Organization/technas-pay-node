@@ -806,3 +806,21 @@ test("avis payment.expired : reason canceled (avec canceledAt), timeout, ou abse
   }
   assert.deepEqual(vus, [["canceled", "2026-11-16T09:00:00Z"], ["timeout", null], [null, null]]);
 });
+
+test("frais au client : fees envoyé seulement s'il est donné ; customerAmount et feesPaidBy lus (défauts compris)", async () => {
+  const { pay, sent } = payCapturingCurrency();
+  const p = await pay.askForPayment({ ...ASK, fees: "customer", customer: { email: "a@b.co", name: "A" } });
+  assert.equal(sent[0].fees, "customer");
+  // Serveur plus ancien : customer_amount absent → amount, fees_paid_by absent → partner.
+  assert.equal(p.customerAmount, p.amount);
+  assert.equal(p.feesPaidBy, "partner");
+  await pay.askForPayment({ ...ASK, customer: { email: "a@b.co", name: "A" } });
+  assert.equal("fees" in sent[1], false);
+
+  const lu = createTechnasPay({
+    secret: SECRET,
+    fetch: async () => Response.json({ ...PAYMENT_OK, amount: 200, customer_amount: 205, net_amount: 200, commission: 5, fees_paid_by: "customer" }),
+  });
+  const q = await lu.getPayment("pay_1");
+  assert.deepEqual([q.amount, q.customerAmount, q.netAmount, q.feesPaidBy], [200, 205, 200, "customer"]);
+});

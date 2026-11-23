@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0 — 2026-11-23
+
+Frais au client : vous recevez exactement votre prix.
+- `askForPayment({ …, fees: "customer" })` : la commission Technas s'ajoute à ce que paie le client au lieu d'être retenue sur `amount` (200 F à 2 % : le client paie 205, vous recevez 200). Sans `fees` : le réglage de votre compte (demandez-le à Technas). Mobile money en franc CFA seulement (`fees_customer_unavailable` sinon) ;
+- `Payment` et l'avis `event.payment` : `customerAmount` (ce que le client paie, avant les frais du réseau mobile money) et `feesPaidBy`. `amount` reste VOTRE prix : comparez-le à votre facture comme avant.
+
 ## 0.15.1 — 2026-11-23
 
 Un essai échoué ne bloque plus :
