@@ -824,3 +824,47 @@ test("frais au client : fees envoyé seulement s'il est donné ; customerAmount 
   const q = await lu.getPayment("pay_1");
   assert.deepEqual([q.amount, q.customerAmount, q.netAmount, q.feesPaidBy], [200, 205, 200, "customer"]);
 });
+
+test("devis : quote et getFees envoient le montant, le pays et le mode, et lisent chaque réseau", async () => {
+  const envoyes = [];
+  const DEVIS = {
+    method: "mobile_money", currency: "XOF", country: "TG", fees_paid_by: "customer",
+    amount: 200, customer_amount: 205, customer_total: 214, processing_fee: 9, commission: 5, net_amount: 200,
+    networks: [{ network: "togocel", network_name: "Mixx by Yas", customer_total: 214, processing_fee: 9,
+                 commission: 5, net_amount: 200, operator_fee_estimate: 10, otp_required: false, otp_instructions: null }],
+  };
+  const pay = createTechnasPay({
+    secret: SECRET,
+    fetch: async (url, init) => { envoyes.push([url, JSON.parse(init.body)]); return Response.json(DEVIS); },
+  });
+  const q = await pay.quote({ amount: 200, country: "tg", fees: "customer" });
+  assert.ok(envoyes[0][0].endsWith("/v1/quotes"));
+  assert.deepEqual(envoyes[0][1], { amount: 200, country: "TG", fees: "customer" });
+  assert.deepEqual([q.customerTotal, q.processingFee, q.commission, q.netAmount, q.feesPaidBy], [214, 9, 5, 200, "customer"]);
+  assert.deepEqual(q.networks[0], {
+    network: "togocel", networkName: "Mixx by Yas", customerTotal: 214, processingFee: 9, commission: 5,
+    netAmount: 200, operatorFeeEstimate: 10, otpRequired: false, otpInstructions: null,
+  });
+  await pay.getFees({ amount: 1000, country: "TG", network: "togocel" });
+  assert.deepEqual(envoyes[1][1], { amount: 1000, country: "TG", network: "togocel" });
+});
+
+test("devis : amount_too_low rend le minimum ; un paiement lit customerTotal et processingFee", async () => {
+  const pay = createTechnasPay({
+    secret: SECRET,
+    fetch: async () => Response.json({ code: "amount_too_low", message: "trop petit", minimum_amount: 209 }, { status: 422 }),
+  });
+  await assert.rejects(pay.quote({ amount: 200, country: "TG", fees: "partner" }), (e) => {
+    assert.equal(e.code, "amount_too_low");
+    assert.equal(e.details.minimumAmount, 209);
+    return true;
+  });
+  const lu = createTechnasPay({
+    secret: SECRET,
+    fetch: async () => Response.json({ ...PAYMENT_OK, amount: 200, customer_amount: 205, customer_total: 214, processing_fee: 9, fees_paid_by: "customer" }),
+  });
+  const p = await lu.getPayment("pay_1");
+  assert.deepEqual([p.customerTotal, p.processingFee], [214, 9]);
+  const ancien = createTechnasPay({ secret: SECRET, fetch: async () => Response.json(PAYMENT_OK) });
+  assert.deepEqual([(await ancien.getPayment("pay_1")).customerTotal, (await ancien.getPayment("pay_1")).processingFee], [null, null]);
+});

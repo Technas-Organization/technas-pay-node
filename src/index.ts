@@ -94,11 +94,81 @@ export interface AskForPaymentInput {
    */
   askCountry?: boolean;
   /**
-   * Qui paie la commission Technas : `"partner"` (retenue sur `amount`) ou `"customer"`
-   * (ajoutée au montant payé : vous recevez exactement `amount`). Absent : le réglage de
-   * votre compte. Mobile money en franc CFA seulement (`fees_customer_unavailable` sinon).
+   * Qui paie les frais (mobile money en franc CFA) :
+   * - `"customer"` : le client paie tout, frais du réseau de paiement ET commission Technas ;
+   *   vous recevez EXACTEMENT `amount` ;
+   * - `"partner"` : le client paie `amount`, frais compris ; vous recevez le reste.
+   * Absent : le réglage de votre compte. Pour connaître les montants avant de créer le
+   * paiement : `pay.quote(...)`. Par carte, seulement `"partner"` (`fees_customer_unavailable`).
    */
-  fees?: "partner" | "customer";
+  fees?: FeesPaidBy;
+}
+
+/** Qui paie les frais : le client (`"customer"`) ou vous (`"partner"`). */
+export type FeesPaidBy = "partner" | "customer";
+
+/** Ce qu'on demande à `pay.quote` : un montant, et où le client paie. */
+export interface QuoteInput {
+  /** Votre prix, en unité principale (5000 = 5 000 F CFA). */
+  amount: number;
+  /** `"mobile_money"` (défaut) ou `"card"`. */
+  method?: PaymentMethod;
+  /** Pays du client (ISO, ex. `"TG"`). Sans lui : tous les pays de la devise. */
+  country?: string;
+  /** Un réseau précis (`network` d'un devis précédent), sinon tous ceux du pays. */
+  network?: string;
+  /** Sans `country` : `"XOF"` ou `"XAF"`. Obligatoire par carte. */
+  currency?: string;
+  /** Qui paie les frais ; absent : le réglage de votre compte. */
+  fees?: FeesPaidBy;
+}
+
+/** Un réseau du devis : ce que le client paie s'il paie avec lui. */
+export interface QuoteNetwork {
+  /** Code du réseau (ex. `"togocel"`). */
+  network: string;
+  /** Le nom que le client connaît (ex. « Mixx by Yas »). */
+  networkName: string;
+  /** Ce que le client paie, frais du réseau de paiement compris : le montant à afficher. */
+  customerTotal: number;
+  /** Les frais du réseau de paiement dans `customerTotal`. */
+  processingFee: number;
+  /** La commission Technas. */
+  commission: number;
+  /** Ce que vous recevez. */
+  netAmount: number;
+  /**
+   * Les frais propres de l'opérateur du client, prélevés sur son téléphone EN PLUS, hors
+   * Technas : une estimation (« environ »), jamais promise. `null` = inconnus.
+   */
+  operatorFeeEstimate: number | null;
+  /** Le client doit obtenir un code sur son téléphone avant de payer (`otpInstructions`). */
+  otpRequired: boolean;
+  otpInstructions: string | null;
+}
+
+/** Le devis d'un paiement : rien n'est créé. */
+export interface Quote {
+  method: PaymentMethod;
+  currency: string;
+  country: string | null;
+  feesPaidBy: FeesPaidBy;
+  /** Votre prix. */
+  amount: number;
+  /** Ce que Technas demande au réseau de paiement (avant ses frais). */
+  customerAmount: number;
+  /**
+   * Ce que le client paie, frais du réseau compris (le plus haut des réseaux possibles).
+   * Par carte : `amount` (les frais de la carte sont pris sur votre compte carte).
+   */
+  customerTotal: number;
+  /** Les frais du réseau de paiement (le plus haut des réseaux) ; `null` par carte. */
+  processingFee: number | null;
+  commission: number;
+  /** Ce que vous recevez ; `null` par carte (dépend de la carte du client). */
+  netAmount: number | null;
+  /** Réseau par réseau (mobile money). */
+  networks: QuoteNetwork[];
 }
 
 /** Hors zone franc CFA : le change appliqué à un paiement. */
@@ -136,8 +206,15 @@ export interface Payment {
   netAmount: number;
   /** Ce que le client paie, avant les frais du réseau mobile money (= `amount` sauf frais au client). */
   customerAmount: number;
-  /** Qui a payé la commission : `"partner"` ou `"customer"`. */
-  feesPaidBy: "partner" | "customer";
+  /** Qui a payé les frais : `"partner"` ou `"customer"`. */
+  feesPaidBy: FeesPaidBy;
+  /**
+   * Ce que le client paie, frais du réseau de paiement compris (le plus haut des réseaux
+   * tant qu'il n'a pas choisi le sien). `null` : inconnu (carte, hors franc CFA, serveur ancien).
+   */
+  customerTotal: number | null;
+  /** Les frais du réseau de paiement dans `customerTotal`. */
+  processingFee: number | null;
   status: PaymentStatus;
   /** `mobile_money` ou `card`. */
   method: PaymentMethod;
@@ -207,7 +284,10 @@ export interface PaymentEvent {
     netAmount: number;
     /** Ce que le client paie, avant les frais du réseau (= `amount` sauf frais au client). */
     customerAmount: number;
-    feesPaidBy: "partner" | "customer";
+    feesPaidBy: FeesPaidBy;
+    /** Ce que le client a payé, frais du réseau compris (`null` : inconnu). */
+    customerTotal: number | null;
+    processingFee: number | null;
     metadata: Record<string, unknown>;
     completedAt: string | null;
     /** Hors zone CFA : le montant demandé en F CFA ; `amount` et `currency` sont ce qui a été payé. */
@@ -613,6 +693,8 @@ export class TechnasPayError extends Error {
       consoleUrl?: string;
       /** `contract_required` : la version du contrat à accepter dans la console. */
       version?: string;
+      /** `amount_too_low` : le plus petit montant possible (minimum du réseau, frais compris). */
+      minimumAmount?: number;
     } = {},
   ) {
     super(message);
@@ -726,6 +808,32 @@ function parseAccountKyc(raw: any): AccountKyc {
   };
 }
 
+function parseQuote(raw: any): Quote {
+  return {
+    method: raw.method ?? "mobile_money",
+    currency: raw.currency,
+    country: raw.country ?? null,
+    feesPaidBy: raw.fees_paid_by ?? "partner",
+    amount: raw.amount,
+    customerAmount: raw.customer_amount ?? raw.amount,
+    customerTotal: raw.customer_total ?? raw.amount,
+    processingFee: raw.processing_fee ?? null,
+    commission: raw.commission,
+    netAmount: raw.net_amount ?? null,
+    networks: (raw.networks ?? []).map((n: any) => ({
+      network: n.network,
+      networkName: n.network_name ?? n.network,
+      customerTotal: n.customer_total,
+      processingFee: n.processing_fee,
+      commission: n.commission,
+      netAmount: n.net_amount,
+      operatorFeeEstimate: n.operator_fee_estimate ?? null,
+      otpRequired: Boolean(n.otp_required),
+      otpInstructions: n.otp_instructions ?? null,
+    })),
+  };
+}
+
 function parsePayment(raw: any): Payment {
   return {
     id: raw.id,
@@ -736,6 +844,8 @@ function parsePayment(raw: any): Payment {
     netAmount: raw.net_amount,
     customerAmount: raw.customer_amount ?? raw.amount,
     feesPaidBy: raw.fees_paid_by ?? "partner",
+    customerTotal: raw.customer_total ?? null,
+    processingFee: raw.processing_fee ?? null,
     status: raw.status,
     method: raw.method ?? "mobile_money",
     refundedAmount: raw.refunded_amount ?? 0,
@@ -860,6 +970,8 @@ function parseEvent(raw: any): TechnasPayEvent {
       netAmount: d.net_amount,
       customerAmount: d.customer_amount ?? d.amount,
       feesPaidBy: d.fees_paid_by ?? "partner",
+      customerTotal: d.customer_total ?? null,
+      processingFee: d.processing_fee ?? null,
       metadata: d.metadata ?? {},
       completedAt: d.completed_at ?? null,
       originalAmount: d.original_amount ?? null,
@@ -1130,6 +1242,7 @@ export function createTechnasPay(options: TechnasPayOptions) {
           ...(data?.account_status !== undefined ? { accountStatus: data.account_status } : {}),
           ...(data?.console_url !== undefined ? { consoleUrl: data.console_url } : {}),
           ...(data?.version !== undefined ? { version: data.version } : {}),
+          ...(data?.minimum_amount !== undefined ? { minimumAmount: data.minimum_amount } : {}),
         },
       );
     }
@@ -1386,6 +1499,34 @@ export function createTechnasPay(options: TechnasPayOptions) {
      */
     async getAccountKyc(): Promise<AccountKyc> {
       return parseAccountKyc(await call<any>("GET", "/v1/account/kyc"));
+    },
+
+    /**
+     * Le devis : pour un montant, ce que le client paiera (`customerTotal`, à afficher) et ce
+     * que vous recevrez (`netAmount`), réseau par réseau. Ne crée aucun paiement ; un paiement
+     * créé ensuite avec le même montant, le même pays et le même `fees` rend les mêmes montants.
+     *
+     * ```ts
+     * const q = await pay.quote({ amount: 200, country: "TG", fees: "customer" });
+     * q.customerTotal; // 214 : le client paie 214, vous recevez 200
+     * ```
+     */
+    async quote(input: QuoteInput): Promise<Quote> {
+      return parseQuote(
+        await call<any>("POST", "/v1/quotes", {
+          amount: input.amount,
+          ...(input.method ? { method: input.method } : {}),
+          ...(input.country ? { country: input.country.trim().toUpperCase() } : {}),
+          ...(input.network ? { network: input.network } : {}),
+          ...(input.currency ? { currency: input.currency.trim().toUpperCase() } : {}),
+          ...(input.fees ? { fees: input.fees } : {}),
+        }),
+      );
+    },
+
+    /** Même chose que `quote` : combien le client paiera, combien vous recevrez. */
+    async getFees(input: QuoteInput): Promise<Quote> {
+      return api.quote(input);
     },
 
     /** Ce que Technas vous doit, par devise. */

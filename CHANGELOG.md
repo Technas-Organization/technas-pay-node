@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0 — 2026-11-23
+
+Qui paie les frais, et combien paie le client :
+- `pay.quote({ amount, country?, network?, currency?, fees?, method? })` (`POST /v1/quotes`), et son alias `pay.getFees` → `Quote` : `customerTotal` (ce que le client paie, à afficher), `processingFee` (frais du réseau de paiement), `commission`, `netAmount` (ce que vous recevez), `networks[]` (réseau par réseau, avec `operatorFeeEstimate`, une estimation des frais propres de l'opérateur, jamais promise). Rien n'est créé ;
+- `fees: "customer"` couvre désormais TOUS les frais (réseau de paiement + commission) : vous recevez exactement `amount`. `fees: "partner"` : le client paie `amount`, frais compris ;
+- `Payment` et l'avis `event.payment` : `customerTotal` et `processingFee` (`null` sur un serveur ancien) ;
+- `amount_too_low` : `error.details.minimumAmount`.
+
 ## 0.16.0 — 2026-11-23
 
 Frais au client : vous recevez exactement votre prix.
