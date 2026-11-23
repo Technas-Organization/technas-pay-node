@@ -51,6 +51,32 @@ export function retryReference(orderId: string | number, attempt: number): strin
  */
 export type PaymentMethod = "mobile_money" | "card";
 
+/** Tous les moyens de paiement, à énumérer (`for (const m of PAYMENT_METHODS)`). */
+export const PAYMENT_METHODS = ["mobile_money", "card"] as const satisfies readonly PaymentMethod[];
+
+/**
+ * Tous les réseaux mobile money : le porte-monnaie que le client a dans sa poche, jamais
+ * l'intermédiaire qui fait passer le paiement. `mixx` = Mixx by Yas (ex-T-Money, Togocel),
+ * `moov` = Moov Money (Flooz au Togo). Ceux réellement ouverts, par pays :
+ * `pay.getPaymentMethods(country)`.
+ */
+export const NETWORKS = [
+  "mixx", "moov", "mtn_momo", "orange_money", "wave", "airtel_money", "free_money", "celtiis_cash",
+  "djamo", "expresso", "wizall", "mobicash", "mpesa", "telecel_cash", "airteltigo_money", "afrimoney",
+  "qmoney", "tnm_mpamba", "emola", "zamtel_kwacha", "ezypesa", "halopesa", "tpesa",
+] as const;
+
+/** Un réseau mobile money (voir `NETWORKS`). */
+export type Network = (typeof NETWORKS)[number];
+
+/** Les moyens et réseaux ouverts pour votre compte, ce que vous avez activé, et votre ordre. */
+export interface PaymentMethods {
+  methods: { method: PaymentMethod; enabled: boolean }[];
+  /** Réseaux ouverts, par pays, dans VOTRE ordre d'affichage ; `enabled` : votre réglage. */
+  networks: { network: Network; name: string; country: string; currency: string | null; enabled: boolean }[];
+  networkOrder: Network[];
+}
+
 export interface AskForPaymentInput {
   /**
    * Montant en unité principale, jamais ×100 : 5000 = 5 000 FCFA, 12.5 = 12,50 €.
@@ -102,6 +128,11 @@ export interface AskForPaymentInput {
    * paiement : `pay.quote(...)`. Par carte, seulement `"partner"` (`fees_customer_unavailable`).
    */
   fees?: FeesPaidBy;
+  /**
+   * Les réseaux mobile money permis pour CE paiement (parmi ceux de votre compte). Absent :
+   * tous ceux que vous avez activés.
+   */
+  networks?: Network[];
 }
 
 /** Qui paie les frais : le client (`"customer"`) ou vous (`"partner"`). */
@@ -115,8 +146,8 @@ export interface QuoteInput {
   method?: PaymentMethod;
   /** Pays du client (ISO, ex. `"TG"`). Sans lui : tous les pays de la devise. */
   country?: string;
-  /** Un réseau précis (`network` d'un devis précédent), sinon tous ceux du pays. */
-  network?: string;
+  /** Un réseau précis, sinon tous ceux du pays. */
+  network?: Network;
   /** Sans `country` : `"XOF"` ou `"XAF"`. Obligatoire par carte. */
   currency?: string;
   /** Qui paie les frais ; absent : le réglage de votre compte. */
@@ -125,8 +156,8 @@ export interface QuoteInput {
 
 /** Un réseau du devis : ce que le client paie s'il paie avec lui. */
 export interface QuoteNetwork {
-  /** Code du réseau (ex. `"togocel"`). */
-  network: string;
+  /** Le réseau (voir `NETWORKS`), ex. `"mixx"`. */
+  network: Network;
   /** Le nom que le client connaît (ex. « Mixx by Yas »). */
   networkName: string;
   /** Ce que le client paie, frais du réseau de paiement compris : le montant à afficher. */
@@ -215,6 +246,10 @@ export interface Payment {
   customerTotal: number | null;
   /** Les frais du réseau de paiement dans `customerTotal`. */
   processingFee: number | null;
+  /** Le réseau avec lequel le client a payé, une fois payé (`null` avant, ou par carte). */
+  network: Network | null;
+  /** Les réseaux permis pour ce paiement, s'il les a restreints. */
+  networks: Network[] | null;
   status: PaymentStatus;
   /** `mobile_money` ou `card`. */
   method: PaymentMethod;
@@ -288,6 +323,8 @@ export interface PaymentEvent {
     /** Ce que le client a payé, frais du réseau compris (`null` : inconnu). */
     customerTotal: number | null;
     processingFee: number | null;
+    /** Le réseau avec lequel le client a payé. */
+    network: Network | null;
     metadata: Record<string, unknown>;
     completedAt: string | null;
     /** Hors zone CFA : le montant demandé en F CFA ; `amount` et `currency` sont ce qui a été payé. */
@@ -846,6 +883,8 @@ function parsePayment(raw: any): Payment {
     feesPaidBy: raw.fees_paid_by ?? "partner",
     customerTotal: raw.customer_total ?? null,
     processingFee: raw.processing_fee ?? null,
+    network: raw.network ?? null,
+    networks: raw.networks ?? null,
     status: raw.status,
     method: raw.method ?? "mobile_money",
     refundedAmount: raw.refunded_amount ?? 0,
@@ -972,6 +1011,7 @@ function parseEvent(raw: any): TechnasPayEvent {
       feesPaidBy: d.fees_paid_by ?? "partner",
       customerTotal: d.customer_total ?? null,
       processingFee: d.processing_fee ?? null,
+      network: d.network ?? null,
       metadata: d.metadata ?? {},
       completedAt: d.completed_at ?? null,
       originalAmount: d.original_amount ?? null,
@@ -1300,6 +1340,7 @@ export function createTechnasPay(options: TechnasPayOptions) {
         ...(input.excludedCountries ? { excluded_countries: input.excludedCountries } : {}),
         ...(input.askCountry ? { ask_country: true } : {}),
         ...(input.fees ? { fees: input.fees } : {}),
+        ...(input.networks?.length ? { networks: input.networks } : {}),
       });
       return parsePayment(raw) as Payment & { checkoutUrl: string };
     },
@@ -1449,6 +1490,34 @@ export function createTechnasPay(options: TechnasPayOptions) {
     },
 
     /** Où vous vendez, pour tous vos paiements : pays autorisés (absent : tous) et exclus. Codes ISO. */
+    /**
+     * Les moyens et réseaux ouverts pour votre compte (par pays, `country` facultatif), ce que
+     * vous avez activé (`enabled`) et votre ordre d'affichage. Pour construire votre propre
+     * choix de paiement, ou vos réglages.
+     */
+    async getPaymentMethods(country?: string): Promise<PaymentMethods> {
+      const q = country ? `?country=${encodeURIComponent(country.trim().toUpperCase())}` : "";
+      const r = await call<any>("GET", `/v1/payment-methods${q}`);
+      return { methods: r.methods ?? [], networks: r.networks ?? [], networkOrder: r.network_order ?? [] };
+    },
+
+    /**
+     * Activer ou éteindre des moyens et des réseaux, et fixer l'ordre d'affichage sur la page de
+     * paiement. Un champ absent ne change pas ; `networks: null` = tous les réseaux.
+     */
+    async setPaymentMethods(input: {
+      methods?: PaymentMethod[] | null;
+      networks?: Network[] | null;
+      networkOrder?: Network[];
+    }): Promise<PaymentMethods> {
+      const r = await call<any>("PUT", "/v1/payment-methods", {
+        ...(input.methods !== undefined ? { methods: input.methods } : {}),
+        ...(input.networks !== undefined ? { networks: input.networks } : {}),
+        ...(input.networkOrder !== undefined ? { network_order: input.networkOrder } : {}),
+      });
+      return { methods: r.methods ?? [], networks: r.networks ?? [], networkOrder: r.network_order ?? [] };
+    },
+
     async setCountryRules(rules: { allowed?: string[] | null; excluded?: string[] }): Promise<{ allowed: string[] | null; excluded: string[] }> {
       return call<any>("PUT", "/v1/country-rules", { allowed: rules.allowed ?? null, excluded: rules.excluded ?? [] });
     },

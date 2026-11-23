@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.0 — 2026-11-23
+
+Les moyens et les réseaux, en listes fermées et typées :
+- constantes `PAYMENT_METHODS` et `NETWORKS` (types `PaymentMethod`, `Network`) : `mixx` (Mixx by Yas), `moov` (Moov Money / Flooz), `mtn_momo`, `orange_money`, `wave`… ;
+- `pay.getPaymentMethods(country?)` (moyens et réseaux ouverts, `enabled`, votre ordre) et `pay.setPaymentMethods({ methods?, networks?, networkOrder? })` ;
+- `askForPayment({ networks })` : les réseaux permis pour un paiement ;
+- `Payment.network` (réseau avec lequel le client a payé), `Payment.networks`, `event.payment.network` ;
+- ⚠️ `quote()` : `networks[i].network` vaut maintenant un réseau de `NETWORKS` (`"mixx"`, `"moov"`) au lieu d'un code technique (`"togocel"`, `"moov_tg"`). En entrée, `quote({ network: "togocel" })` reste accepté et vise `"mixx"`.
+
 ## 0.17.0 — 2026-11-23
 
 Qui paie les frais, et combien paie le client :

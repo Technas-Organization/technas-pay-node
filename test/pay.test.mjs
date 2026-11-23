@@ -868,3 +868,30 @@ test("devis : amount_too_low rend le minimum ; un paiement lit customerTotal et 
   const ancien = createTechnasPay({ secret: SECRET, fetch: async () => Response.json(PAYMENT_OK) });
   assert.deepEqual([(await ancien.getPayment("pay_1")).customerTotal, (await ancien.getPayment("pay_1")).processingFee], [null, null]);
 });
+
+test("moyens et réseaux : énumérations, networks envoyé par paiement, réglages lus et écrits", async () => {
+  const { NETWORKS, PAYMENT_METHODS } = await import("../dist/index.js");
+  assert.deepEqual([...PAYMENT_METHODS], ["mobile_money", "card"]);
+  assert.ok(NETWORKS.includes("mixx") && NETWORKS.includes("orange_money") && !NETWORKS.includes("togocel"));
+  const envoyes = [];
+  const pay = createTechnasPay({
+    secret: SECRET,
+    fetch: async (url, init) => {
+      envoyes.push([init.method, url, init.body ? JSON.parse(init.body) : null]);
+      if (url.includes("/v1/payment-methods")) {
+        return Response.json({ methods: [{ method: "mobile_money", enabled: true }, { method: "card", enabled: false }],
+          networks: [{ network: "mixx", name: "Mixx by Yas", country: "TG", currency: "XOF", enabled: true }],
+          network_order: ["mixx"] });
+      }
+      return Response.json({ ...PAYMENT_OK, network: "mixx", networks: ["mixx", "moov"] });
+    },
+  });
+  const p = await pay.askForPayment({ ...ASK, networks: ["mixx", "moov"], customer: { email: "a@b.co", name: "A" } });
+  assert.deepEqual(envoyes[0][2].networks, ["mixx", "moov"]);
+  assert.deepEqual([p.network, p.networks], ["mixx", ["mixx", "moov"]]);
+  const m = await pay.getPaymentMethods("tg");
+  assert.ok(envoyes[1][1].endsWith("/v1/payment-methods?country=TG"));
+  assert.deepEqual(m.networkOrder, ["mixx"]);
+  await pay.setPaymentMethods({ networkOrder: ["mixx", "moov"], methods: ["mobile_money"] });
+  assert.deepEqual(envoyes[2].slice(0, 1).concat([envoyes[2][2]]), ["PUT", { methods: ["mobile_money"], network_order: ["mixx", "moov"] }]);
+});

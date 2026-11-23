@@ -17,6 +17,8 @@ Paquet sans framework : Express, Fastify, NestJS, Koa, Hono, `node:http`, Bun, D
 | Faire payer une commande | `pay.askForPayment({ amount, reference: retryReference(orderId, attempt), customer: { email, name }, returnUrl })`, puis rediriger (303) vers `checkoutUrl` |
 | Savoir combien le client paiera et combien vous recevrez, avant de créer le paiement | `pay.quote({ amount, country, fees? })` (ou `pay.getFees`) → `customerTotal` (à afficher au client), `processingFee`, `commission`, `netAmount`, `networks[]` |
 | Faire payer TOUS les frais au client (vous recevez exactement `amount`) | `fees: "customer"` dans `askForPayment` (ou réglage du compte) ; `"partner"` : le client paie `amount`, frais compris |
+| Lister les moyens et réseaux ouverts, ce qui est activé, l'ordre | `pay.getPaymentMethods(country?)` ; constantes `PAYMENT_METHODS`, `NETWORKS` (types `PaymentMethod`, `Network`) |
+| Activer / éteindre des moyens et réseaux, fixer l'ordre d'affichage | `pay.setPaymentMethods({ methods?, networks?, networkOrder? })` ; par paiement : `networks` dans `askForPayment` |
 | Savoir qu'elle est payée | webhook `onCompleted` : `pay.nodeHandler` (Express, Nest, node:http), `pay.handleWebhook` (Fastify, Koa…), `pay.webhookHandler` (Hono, Bun, Deno) |
 | Rattraper un webhook manqué | `pay.getPaymentByReference(reference)` |
 | Annuler un paiement que personne n'a commencé à payer (autre offre) | `pay.cancelPayment(id)` → paiement `expired`, `checkoutUrl` null, `canceledAt` |
