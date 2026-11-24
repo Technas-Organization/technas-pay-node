@@ -154,6 +154,108 @@ export interface QuoteInput {
   fees?: FeesPaidBy;
 }
 
+/** Ce qu'on demande à `pay.displayPrice` : ce que vous voulez recevoir, et où. */
+export interface DisplayPriceInput {
+  /** Ce que vous voulez recevoir au moins, en unité principale (1000 = 1 000 F CFA). */
+  receive: number;
+  /** Un pays (ISO, ex. `"TG"`). */
+  country?: string;
+  /** Plusieurs pays : un prix par pays (`byCountry`) et un prix valable partout (`everywhere`). */
+  countries?: string[];
+  /** Sans pays : `"XOF"` (défaut) ou `"XAF"`. */
+  currency?: string;
+  /** Le prix est un multiple de ce pas (défaut 50). */
+  roundTo?: number;
+}
+
+/** Ce que vous recevez, réseau par réseau, au prix affiché. */
+export interface DisplayPriceNetwork {
+  country: string | null;
+  network: Network;
+  networkName: string;
+  /** Ce que le client paie : jamais plus que le prix affiché. */
+  customerTotal: number;
+  processingFee: number;
+  commission: number;
+  /** Ce que vous recevez (au moins `receive`). */
+  netAmount: number;
+  /** Frais propres de l'opérateur du client, hors Technas : « environ », `null` = inconnus. */
+  operatorFeeEstimate: number | null;
+}
+
+/** Un prix affiché, avec le réseau qui vous laisse le moins. */
+export interface DisplayPriceForCountry {
+  price: number;
+  currency: string;
+  worstNetwork: DisplayPriceNetwork;
+  netByNetwork: DisplayPriceNetwork[];
+}
+
+/**
+ * Le prix rond à afficher pour recevoir au moins `receive`, quel que soit le réseau du client.
+ * Créez ensuite le paiement avec `amount: price` et `fees: "partner"` : le client paie
+ * exactement ce prix, et le surplus vous reste.
+ */
+export interface DisplayPrice extends DisplayPriceForCountry {
+  /** Toujours `"partner"` : un prix affiché fixe se paie en « vous payez les frais ». */
+  feesPaidBy: "partner";
+  receive: number;
+  roundTo: number;
+  countries: string[];
+  /** Un prix par pays (avec `country` ou `countries`). */
+  byCountry: Record<string, DisplayPriceForCountry>;
+  /** Un seul prix valable dans tous ces pays ; `null` si XOF et XAF sont mélangés. */
+  everywhere: DisplayPriceForCountry | null;
+}
+
+/** Un palier de la grille du réseau de paiement. */
+export interface FeeTier {
+  minAmount: number;
+  maxAmount: number | null;
+  percent: number;
+  fixed: number;
+}
+
+/** Un exemple à 1 000 dans un mode de frais. */
+export interface RateExample {
+  customerTotal: number;
+  processingFee: number;
+  commission: number;
+  netAmount: number;
+}
+
+/** Un réseau de la grille des frais. */
+export interface RateNetwork {
+  network: Network;
+  networkName: string;
+  /** Pourcentage du réseau de paiement (palier de 1 000). */
+  percent: number;
+  fixed: number;
+  feeTiers: FeeTier[];
+  /** Le plus petit montant que le réseau accepte. */
+  minimumAmount: number | null;
+  /** Frais propres de l'opérateur du client sur 1 000, hors Technas : « environ », `null` = inconnus. */
+  operatorFeeEstimate: number | null;
+  /** Exemple à 1 000, dans chaque mode (`null` : pas payable). */
+  example1000: { customer: RateExample | null; partner: RateExample | null };
+}
+
+/** Un pays de la grille des frais. */
+export interface RateCountry {
+  country: string;
+  currency: string;
+  /** La commission Technas. */
+  commission: { percent: number; fixed: number };
+  networks: RateNetwork[];
+}
+
+/** La grille des frais, par pays ouvert et par réseau. */
+export interface Rates {
+  /** Le mode de votre compte. */
+  feesPaidBy: FeesPaidBy;
+  countries: RateCountry[];
+}
+
 /** Un réseau du devis : ce que le client paie s'il paie avec lui. */
 export interface QuoteNetwork {
   /** Le réseau (voir `NETWORKS`), ex. `"mixx"`. */
@@ -842,6 +944,74 @@ function parseAccountKyc(raw: any): AccountKyc {
     blocked: Boolean(raw.blocked),
     reason: raw.reason ?? null,
     consoleUrl: raw.console_url,
+  };
+}
+
+function parseDisplayPriceNetwork(n: any): DisplayPriceNetwork {
+  return {
+    country: n.country ?? null,
+    network: n.network,
+    networkName: n.network_name ?? n.network,
+    customerTotal: n.customer_total,
+    processingFee: n.processing_fee,
+    commission: n.commission,
+    netAmount: n.net_amount,
+    operatorFeeEstimate: n.operator_fee_estimate ?? null,
+  };
+}
+
+function parseDisplayPriceForCountry(raw: any, devise?: string): DisplayPriceForCountry {
+  return {
+    price: raw.price,
+    currency: raw.currency ?? devise,
+    worstNetwork: parseDisplayPriceNetwork(raw.worst_network),
+    netByNetwork: (raw.net_by_network ?? []).map(parseDisplayPriceNetwork),
+  };
+}
+
+function parseDisplayPrice(raw: any): DisplayPrice {
+  const byCountry: Record<string, DisplayPriceForCountry> = {};
+  for (const [pays, v] of Object.entries(raw.by_country ?? {})) byCountry[pays] = parseDisplayPriceForCountry(v);
+  return {
+    ...parseDisplayPriceForCountry(raw),
+    feesPaidBy: "partner",
+    receive: raw.receive,
+    roundTo: raw.round_to,
+    countries: raw.countries ?? [],
+    byCountry,
+    everywhere: raw.everywhere ? parseDisplayPriceForCountry(raw.everywhere) : null,
+  };
+}
+
+function parseRateExample(e: any): RateExample | null {
+  return e
+    ? { customerTotal: e.customer_total, processingFee: e.processing_fee, commission: e.commission, netAmount: e.net_amount }
+    : null;
+}
+
+function parseRates(raw: any): Rates {
+  return {
+    feesPaidBy: raw.fees_paid_by ?? "partner",
+    countries: (raw.countries ?? []).map((c: any) => ({
+      country: c.country,
+      currency: c.currency,
+      commission: { percent: c.commission?.percent ?? 0, fixed: c.commission?.fixed ?? 0 },
+      networks: (c.networks ?? []).map((n: any) => ({
+        network: n.network,
+        networkName: n.network_name ?? n.network,
+        percent: n.percent,
+        fixed: n.fixed ?? 0,
+        feeTiers: (n.fee_tiers ?? []).map((t: any) => ({
+          minAmount: t.min_amount, maxAmount: t.max_amount ?? null, percent: t.percent, fixed: t.fixed ?? 0,
+        })),
+        minimumAmount: n.minimum_amount ?? null,
+        operatorFeeEstimate: n.operator_fee_estimate ?? null,
+        example1000: {
+          customer: parseRateExample(n.example_1000?.customer),
+          partner: parseRateExample(n.example_1000?.partner),
+        },
+      })),
+    })),
   };
 }
 
@@ -1597,6 +1767,50 @@ export function createTechnasPay(options: TechnasPayOptions) {
     async getFees(input: QuoteInput): Promise<Quote> {
       return api.quote(input);
     },
+
+    /**
+     * Le prix affiché FIXE : le plus petit prix rond qui vous laisse au moins `receive`, quel
+     * que soit le réseau du client. Créez ensuite le paiement avec ce prix et `fees: "partner"`
+     * (jamais `"customer"` : le client paierait le prix PLUS les frais).
+     *
+     * ```ts
+     * const d = await pay.displayPrice({ receive: 1000, countries: ["TG", "BJ"], roundTo: 50 });
+     * d.byCountry.TG.price; // le prix à afficher au Togo
+     * d.everywhere?.price;  // un seul prix valable dans les deux pays
+     * await pay.askForPayment({ amount: d.byCountry.TG.price, fees: "partner", ... });
+     * ```
+     */
+    async displayPrice(input: DisplayPriceInput): Promise<DisplayPrice> {
+      return parseDisplayPrice(
+        await call<any>("POST", "/v1/display-price", {
+          receive: input.receive,
+          ...(input.country ? { country: input.country.trim().toUpperCase() } : {}),
+          ...(input.countries?.length ? { countries: input.countries.map((c) => c.trim().toUpperCase()) } : {}),
+          ...(input.currency ? { currency: input.currency.trim().toUpperCase() } : {}),
+          ...(input.roundTo ? { round_to: input.roundTo } : {}),
+        }),
+      );
+    },
+
+    /** Même chose que `displayPrice`. */
+    async getDisplayPrice(input: DisplayPriceInput): Promise<DisplayPrice> {
+      return api.displayPrice(input);
+    },
+
+    /**
+     * La grille des frais, par pays ouvert et par réseau : pourcentage, minimum, commission
+     * Technas, estimation des frais de l'opérateur, et un exemple à 1 000 dans chaque mode.
+     */
+    async getRates(country?: string): Promise<Rates> {
+      const q = country ? `?country=${encodeURIComponent(country.trim().toUpperCase())}` : "";
+      return parseRates(await call<any>("GET", `/v1/rates${q}`));
+    },
+
+    /** Même chose que `getRates`. */
+    async rates(country?: string): Promise<Rates> {
+      return api.getRates(country);
+    },
+
 
     /** Ce que Technas vous doit, par devise. */
     async getBalance(): Promise<Balance[]> {

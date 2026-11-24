@@ -22,5 +22,6 @@ Hors zone franc CFA : option `local` seulement, activée par l'utilisateur lui-m
 - [examples/](examples) : Express, Fastify
 
 Frais : `fees: "customer"` (le client paie frais du réseau + commission ; vous recevez exactement `amount`) ou `"partner"` (le client paie `amount`, frais compris). Devis avant paiement : `pay.quote({ amount, country, fees? })` / `pay.getFees` → `customerTotal` (à afficher), `processingFee`, `commission`, `netAmount`, `networks[]` (dont `operatorFeeEstimate`, « environ »). `amount_too_low` → `error.details.minimumAmount`. Carte : `"partner"` seulement.
+Prix affiché fixe : `pay.displayPrice({ receive, countries?, roundTo? })` → `byCountry[pays].price`, `everywhere.price`, `worstNetwork` ; créer ensuite le paiement avec `amount: price, fees: "partner"` (en `"customer"`, le client paierait prix + frais). Grille des frais : `pay.getRates(country?)` / `pay.rates`.
 
 Moyens et réseaux : constantes `PAYMENT_METHODS` (`mobile_money`, `card`) et `NETWORKS` (`mixx`, `moov`, `mtn_momo`, `orange_money`, `wave`…), types `PaymentMethod`, `Network`. `pay.getPaymentMethods(country?)`, `pay.setPaymentMethods({ methods?, networks?, networkOrder? })`, `networks` par paiement ; `payment.network` une fois payé. Refus : `method_not_enabled`, `network_not_enabled`, `network_not_available`.

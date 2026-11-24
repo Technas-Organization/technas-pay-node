@@ -895,3 +895,45 @@ test("moyens et réseaux : énumérations, networks envoyé par paiement, régla
   await pay.setPaymentMethods({ networkOrder: ["mixx", "moov"], methods: ["mobile_money"] });
   assert.deepEqual(envoyes[2].slice(0, 1).concat([envoyes[2][2]]), ["PUT", { methods: ["mobile_money"], network_order: ["mixx", "moov"] }]);
 });
+
+test("prix affiché fixe : displayPrice envoie receive, pays et pas, lit un prix par pays et partout", async () => {
+  const envoyes = [];
+  const ligne = (pays, reseau, net) => ({ country: pays, network: reseau, network_name: reseau, customer_total: 1100,
+    processing_fee: 44, commission: 22, net_amount: net, operator_fee_estimate: null });
+  const TG = { price: 1100, worst_network: ligne("TG", "mixx", 1034), net_by_network: [ligne("TG", "mixx", 1034)], currency: "XOF" };
+  const BJ = { price: 1150, worst_network: ligne("BJ", "mtn_momo", 1010), net_by_network: [ligne("BJ", "mtn_momo", 1010)], currency: "XOF" };
+  const REPONSE = { ...BJ, fees_paid_by: "partner", receive: 1000, round_to: 50, countries: ["TG", "BJ"],
+    by_country: { TG, BJ }, everywhere: BJ };
+  const pay = createTechnasPay({
+    secret: SECRET,
+    fetch: async (url, init) => { envoyes.push([url, init.method, init.body ? JSON.parse(init.body) : null]); return Response.json(REPONSE); },
+  });
+  const d = await pay.displayPrice({ receive: 1000, countries: ["tg", "BJ"], roundTo: 50 });
+  assert.ok(envoyes[0][0].endsWith("/v1/display-price") && envoyes[0][1] === "POST");
+  assert.deepEqual(envoyes[0][2], { receive: 1000, countries: ["TG", "BJ"], round_to: 50 });
+  assert.deepEqual([d.price, d.feesPaidBy, d.byCountry.TG.price, d.byCountry.BJ.price, d.everywhere.price], [1150, "partner", 1100, 1150, 1150]);
+  assert.deepEqual(d.worstNetwork, { country: "BJ", network: "mtn_momo", networkName: "mtn_momo", customerTotal: 1100,
+    processingFee: 44, commission: 22, netAmount: 1010, operatorFeeEstimate: null });
+  await pay.getDisplayPrice({ receive: 1000, country: "TG" });
+  assert.deepEqual(envoyes[1][2], { receive: 1000, country: "TG" });
+});
+
+test("grille des frais : getRates et rates lisent pays, réseaux, commission et exemples", async () => {
+  const urls = [];
+  const GRILLE = { fees_paid_by: "customer", countries: [{ country: "TG", currency: "XOF", commission: { percent: 2, fixed: 0 },
+    networks: [{ network: "mixx", network_name: "Mixx by Yas", percent: 4.1, fixed: 0,
+      fee_tiers: [{ min_amount: 200, max_amount: 100000000, percent: 4.1, fixed: 0 }], minimum_amount: 200,
+      operator_fee_estimate: 10, example_1000: {
+        customer: { customer_total: 1064, processing_fee: 44, commission: 20, net_amount: 1000 },
+        partner: { customer_total: 1000, processing_fee: 40, commission: 20, net_amount: 940 } } }] }] };
+  const pay = createTechnasPay({ secret: SECRET, fetch: async (url) => { urls.push(url); return Response.json(GRILLE); } });
+  const g = await pay.getRates("tg");
+  assert.ok(urls[0].endsWith("/v1/rates?country=TG"));
+  const mixx = g.countries[0].networks[0];
+  assert.deepEqual([g.feesPaidBy, g.countries[0].commission.percent, mixx.percent, mixx.minimumAmount, mixx.operatorFeeEstimate],
+    ["customer", 2, 4.1, 200, 10]);
+  assert.deepEqual(mixx.example1000.partner, { customerTotal: 1000, processingFee: 40, commission: 20, netAmount: 940 });
+  assert.deepEqual(mixx.feeTiers[0], { minAmount: 200, maxAmount: 100000000, percent: 4.1, fixed: 0 });
+  await pay.rates();
+  assert.ok(urls[1].endsWith("/v1/rates"));
+});

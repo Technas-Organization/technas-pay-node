@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.0 — 2026-11-24
+
+Un prix affiché fixe, et la grille des frais :
+- `pay.displayPrice({ receive, country | countries, currency?, roundTo? })` (ou `getDisplayPrice`) : le plus petit prix rond qui vous laisse au moins `receive` sur chaque réseau ; `byCountry` (un prix par pays), `everywhere` (un prix valable partout), `worstNetwork`, `netByNetwork`. Le paiement se crée ensuite en `fees: "partner"` ;
+- `pay.getRates(country?)` (ou `rates`) : par pays et par réseau, pourcentage, paliers, minimum, commission Technas, estimation des frais de l'opérateur, exemple à 1 000 dans chaque mode.
+
 ## 0.18.0 — 2026-11-23
 
 Les moyens et les réseaux, en listes fermées et typées :
